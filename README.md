@@ -25,7 +25,7 @@ The generated `dist/` directory can be hosted on any static web host.
 
 ## Deploy to GitHub Pages
 
-This repository includes a GitHub Actions workflow that builds the Vite app and publishes `dist/` to GitHub Pages. In the repository settings, set **Pages → Build and deployment → Source** to **GitHub Actions**.
+This repository includes a GitHub Actions workflow that builds the Vite app and publishes `dist/` to GitHub Pages on pushes to `master`. In the repository settings, set **Pages → Build and deployment → Source** to **GitHub Actions**.
 
 GitHub Pages must serve the built output, not the repository root. If Pages serves the source `index.html`, the browser will request `/src/main.tsx` and fail because TypeScript source files are not a production bundle.
 
