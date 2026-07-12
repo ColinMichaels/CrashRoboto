@@ -1,0 +1,1069 @@
+import { GameObjects, Scene } from 'phaser';
+import type { Input } from 'phaser';
+import {
+  BOARD_HEIGHT,
+  BOARD_WIDTH,
+  CARDS,
+  INSTALLATIONS,
+  OVERDRIVE_AURA_RADIUS,
+  PROGRAMS,
+  getPerspectiveScale,
+} from '../core/content';
+import type {
+  CardDefinition,
+  CardId,
+  CombatEntityRef,
+  GameEvent,
+  InstallationKind,
+  InstallationState,
+  MatchSnapshot,
+  ProgramZoneState,
+  ProjectileKind,
+  RobotKind,
+  Team,
+  TowerState,
+  UnitState,
+} from '../core/types';
+import type { GameBridge } from '../bridge/GameBridge';
+import {
+  ARENA_UNIT_ATLAS_FRAME_COUNT,
+  ARENA_UNIT_ATLAS_FRAME_SIZE,
+  ARENA_UNIT_ATLAS_KEY,
+  ARENA_UNIT_DISPLAY_HEIGHT_RATIO,
+  getArenaUnitBodyOriginY,
+  getArenaUnitFrame,
+  getInitialArenaUnitDirection,
+  resolveUnitPose,
+  selectArenaUnitFlipX,
+  type ArenaUnitDirection,
+} from './unitPresentation';
+
+const ROBOT_SIZES: Record<RobotKind, number> = {
+  zip: 106,
+  swarm: 112,
+  brute: 142,
+  rail: 130,
+  pulse: 116,
+  arc: 122,
+  drone: 126,
+  patch: 118,
+  vector: 154,
+  microbot: 68,
+};
+
+const INSTALLATION_SIZES: Record<InstallationKind, number> = {
+  sentry: 158,
+  foundry: 180,
+};
+
+const PLAYER_COLOR = 0x28e7d2;
+const ENEMY_COLOR = 0xff6b5e;
+const PROGRAM_COLOR = 0x69dfff;
+const INSTALLATION_COLOR = 0xf6c453;
+const OVERDRIVE_COLOR = 0xffcf5a;
+const INVALID_COLOR = 0xff6b5e;
+const DISABLED_COLOR = 0x91a6ad;
+
+interface NanoZoneVisual {
+  field: GameObjects.Graphics;
+  core: GameObjects.Image;
+}
+
+type EntityDestroyedEvent = Extract<GameEvent, { type: 'entityDestroyed' }>;
+
+interface PendingAttackVisual {
+  projectile: ProjectileKind;
+  deaths: EntityDestroyedEvent[];
+}
+
+interface UnitMotionVisual {
+  previousX: number;
+  previousY: number;
+  movingUntilMs: number;
+  direction: ArenaUnitDirection;
+  flipX: boolean;
+}
+
+const teamColor = (team: Team): number => (team === 'player' ? PLAYER_COLOR : ENEMY_COLOR);
+const textureKey = (sheet: 'robot' | 'system'): string => (sheet === 'system' ? 'system-sprites' : 'robot-sprites');
+
+export class BattleScene extends Scene {
+  private readonly unitSprites = new Map<string, GameObjects.Sprite>();
+  private readonly unitShadows = new Map<string, GameObjects.Ellipse>();
+  private readonly unitMotion = new Map<string, UnitMotionVisual>();
+  private readonly towerSprites = new Map<string, GameObjects.Image>();
+  private readonly installationSprites = new Map<string, GameObjects.Image>();
+  private readonly nanoZoneVisuals = new Map<string, NanoZoneVisual>();
+  private readonly pendingAttacks = new Map<number, PendingAttackVisual>();
+  private readonly pendingDeathIds = new Set<string>();
+  private readonly combatVfx = new Set<GameObjects.GameObject>();
+  private healthLayer!: GameObjects.Graphics;
+  private deployLayer!: GameObjects.Graphics;
+  private statusLayer!: GameObjects.Graphics;
+  private targetLayer!: GameObjects.Graphics;
+  private ghost!: GameObjects.Image;
+  private latestPointer = { x: 800, y: 500 };
+  private previousPhase: MatchSnapshot['phase'] | null = null;
+  private previousRemainingMs = 0;
+  private unsubscribeEvents?: () => void;
+
+  constructor(private readonly bridge: GameBridge) {
+    super('battle');
+  }
+
+  preload(): void {
+    const base = import.meta.env.BASE_URL;
+    this.load.image('arena-board', `${base}assets/game/arena-board-perspective.png`);
+    this.load.spritesheet('robot-sprites', `${base}assets/game/robot-sprites.png`, {
+      frameWidth: 443,
+      frameHeight: 443,
+      endFrame: 7,
+    });
+    this.load.spritesheet('tower-sprites', `${base}assets/game/tower-sprites.png`, {
+      frameWidth: 627,
+      frameHeight: 627,
+      endFrame: 3,
+    });
+    this.load.spritesheet('system-sprites', `${base}assets/game/system-sprites.png`, {
+      frameWidth: 512,
+      frameHeight: 512,
+      endFrame: 5,
+    });
+    this.load.spritesheet('combat-vfx-sprites', `${base}assets/game/combat-vfx-sprites.png`, {
+      frameWidth: 627,
+      frameHeight: 627,
+      endFrame: 3,
+    });
+    this.load.spritesheet(ARENA_UNIT_ATLAS_KEY, `${base}assets/game/arena-robot-move-sprites.png`, {
+      frameWidth: ARENA_UNIT_ATLAS_FRAME_SIZE,
+      frameHeight: ARENA_UNIT_ATLAS_FRAME_SIZE,
+      endFrame: ARENA_UNIT_ATLAS_FRAME_COUNT - 1,
+    });
+  }
+
+  create(): void {
+    this.add
+      .image(BOARD_WIDTH / 2, BOARD_HEIGHT / 2, 'arena-board')
+      .setDisplaySize(BOARD_WIDTH, BOARD_HEIGHT)
+      .setDepth(0);
+
+    this.deployLayer = this.add.graphics().setDepth(1);
+    this.statusLayer = this.add.graphics().setDepth(6.2);
+    this.targetLayer = this.add.graphics().setDepth(6.8);
+    this.healthLayer = this.add.graphics().setDepth(8);
+    this.ghost = this.add
+      .image(this.latestPointer.x, this.latestPointer.y, 'robot-sprites', 0)
+      .setDisplaySize(112, 112)
+      .setAlpha(0.64)
+      .setDepth(7)
+      .setVisible(false);
+
+    this.input.on('pointermove', (pointer: Input.Pointer) => {
+      this.latestPointer = { x: pointer.worldX, y: pointer.worldY };
+      this.updateGhost();
+    });
+
+    this.input.on('pointerdown', (pointer: Input.Pointer) => {
+      if (pointer.rightButtonDown()) {
+        this.bridge.dispatch({ type: 'select', cardId: null });
+        return;
+      }
+      const snapshot = this.bridge.getSnapshot();
+      if (!snapshot.selected) return;
+      this.bridge.dispatch({
+        type: 'playCard',
+        team: 'player',
+        cardId: snapshot.selected,
+        x: pointer.worldX,
+        y: pointer.worldY,
+      });
+    });
+
+    this.unsubscribeEvents = this.bridge.subscribeToEvents((event) => this.onGameEvent(event));
+    const cleanup = () => {
+      this.unsubscribeEvents?.();
+      this.unsubscribeEvents = undefined;
+      this.clearCombatVfx();
+    };
+    this.events.once('shutdown', cleanup);
+    this.events.once('destroy', cleanup);
+    this.syncPresentation();
+  }
+
+  update(_time: number, delta: number): void {
+    this.bridge.tick(delta);
+    this.syncPresentation();
+  }
+
+  private syncPresentation(): void {
+    const snapshot = this.bridge.getSnapshot();
+    const startingFreshMatch =
+      snapshot.phase === 'playing' &&
+      this.previousPhase !== null &&
+      (this.previousPhase === 'menu' ||
+        this.previousPhase === 'ended' ||
+        snapshot.remainingMs > this.previousRemainingMs + 1_000);
+    if (startingFreshMatch) this.clearCombatVfx();
+    this.previousPhase = snapshot.phase;
+    this.previousRemainingMs = snapshot.remainingMs;
+
+    const unitIds = new Set(snapshot.units.map((unit) => unit.id));
+    const towerIds = new Set(snapshot.towers.map((tower) => tower.id));
+    const installationIds = new Set(snapshot.installations.map((installation) => installation.id));
+    const zoneIds = new Set(snapshot.zones.map((zone) => zone.id));
+
+    for (const unit of snapshot.units) this.syncUnit(unit, snapshot.phase);
+    for (const [id, sprite] of this.unitSprites) {
+      if (!unitIds.has(id) && !this.pendingDeathIds.has(id)) {
+        this.tweens.killTweensOf(sprite);
+        sprite.destroy();
+        this.unitSprites.delete(id);
+        this.destroyUnitAuxiliary(id);
+      }
+    }
+
+    for (const tower of snapshot.towers) this.syncTower(tower);
+    for (const [id, sprite] of this.towerSprites) {
+      if (!towerIds.has(id)) {
+        sprite.destroy();
+        this.towerSprites.delete(id);
+      }
+    }
+
+    for (const installation of snapshot.installations) this.syncInstallation(installation);
+    for (const [id, sprite] of this.installationSprites) {
+      if (!installationIds.has(id) && !this.pendingDeathIds.has(id)) {
+        this.tweens.killTweensOf(sprite);
+        sprite.destroy();
+        this.installationSprites.delete(id);
+      }
+    }
+
+    for (const zone of snapshot.zones) this.syncNanoZone(zone);
+    for (const [id, visual] of this.nanoZoneVisuals) {
+      if (!zoneIds.has(id)) {
+        this.tweens.killTweensOf(visual.core);
+        visual.field.destroy();
+        visual.core.destroy();
+        this.nanoZoneVisuals.delete(id);
+      }
+    }
+
+    this.drawStatus(snapshot);
+    this.drawHealth(snapshot.units, snapshot.towers, snapshot.installations);
+    this.drawDeployZone(snapshot.selected, snapshot.phase === 'playing');
+    this.updateGhost();
+  }
+
+  private syncUnit(unit: UnitState, phase: MatchSnapshot['phase']): void {
+    let sprite = this.unitSprites.get(unit.id);
+    let shadow = this.unitShadows.get(unit.id);
+    let motion = this.unitMotion.get(unit.id);
+    const size = ROBOT_SIZES[unit.kind] * getPerspectiveScale(unit.y);
+    const displayHeight = size * ARENA_UNIT_DISPLAY_HEIGHT_RATIO[unit.kind];
+    if (!sprite) {
+      sprite = this.add
+        .sprite(
+          unit.x,
+          unit.y,
+          ARENA_UNIT_ATLAS_KEY,
+          getArenaUnitFrame(unit.kind, getInitialArenaUnitDirection(unit.team), 0),
+        )
+        .setDisplaySize(size, displayHeight);
+      this.unitSprites.set(unit.id, sprite);
+    }
+    if (!shadow) {
+      shadow = this.add
+        .ellipse(unit.x, unit.y, size * 0.58, size * 0.14, 0x000000, 0.3)
+        .setDepth(4.82 + unit.y / 1000);
+      this.unitShadows.set(unit.id, shadow);
+    }
+    if (!motion) {
+      motion = {
+        previousX: unit.x,
+        previousY: unit.y,
+        movingUntilMs: 0,
+        direction: getInitialArenaUnitDirection(unit.team),
+        flipX: false,
+      };
+      this.unitMotion.set(unit.id, motion);
+    }
+
+    const pose = resolveUnitPose({
+      unitId: unit.id,
+      kind: unit.kind,
+      team: unit.team,
+      facing: unit.facing,
+      x: unit.x,
+      y: unit.y,
+      previousX: motion.previousX,
+      previousY: motion.previousY,
+      previousDirection: motion.direction,
+      movingUntilMs: motion.movingUntilMs,
+      nowMs: this.time.now,
+      phase,
+      hp: unit.hp,
+      disabledMs: unit.disabledMs,
+    });
+    const flipX = selectArenaUnitFlipX(unit.facing, motion.flipX);
+    const moving = pose.state === 'moving';
+    const gaitSign = pose.gaitFrame === 0 ? -1 : 1;
+    const bobStrength = unit.kind === 'drone' ? 3.4 : unit.kind === 'swarm' || unit.kind === 'microbot' ? 2.5 : 1.8;
+    const idleHover = unit.kind === 'drone' && pose.state === 'idle' ? Math.sin(this.time.now / 180) * 1.25 : 0;
+    const bob = (moving ? (pose.gaitFrame === 0 ? 0.55 : -bobStrength) : idleHover) * getPerspectiveScale(unit.y);
+    const leanStrength = unit.kind === 'drone' ? 0.055 : unit.kind === 'brute' || unit.kind === 'vector' ? 0.032 : 0.04;
+    const lean = moving ? gaitSign * leanStrength * (flipX ? -1 : 1) : 0;
+
+    motion.previousX = unit.x;
+    motion.previousY = unit.y;
+    motion.movingUntilMs = pose.movingUntilMs;
+    motion.direction = pose.direction;
+    motion.flipX = flipX;
+
+    sprite
+      .setFrame(pose.frame)
+      .setPosition(unit.x, unit.y + bob)
+      .setDisplaySize(size, displayHeight * (moving && pose.gaitFrame === 0 ? 0.975 : 1))
+      .setDepth(5 + unit.y / 1000)
+      .setRotation(lean)
+      .setFlipX(flipX)
+      .clearTint();
+
+    shadow
+      .setPosition(unit.x, unit.y + displayHeight * 0.22)
+      .setDisplaySize(size * (moving ? 0.56 : 0.52), Math.max(7, size * 0.115))
+      .setDepth(4.82 + unit.y / 1000)
+      .setAlpha(unit.hp <= 0 ? 0.06 : unit.disabledMs > 0 ? 0.14 : moving ? 0.28 : 0.23);
+
+    if (unit.hp <= 0) {
+      sprite.setAlpha(0.2).setTint(0x25343a);
+    } else if (unit.disabledMs > 0) {
+      const flicker = 0.57 + Math.sin(this.time.now / 70) * 0.08;
+      sprite.setAlpha(flicker).setTint(DISABLED_COLOR);
+    } else if (unit.overdriveMs > 0) {
+      sprite.setAlpha(1).setTint(OVERDRIVE_COLOR);
+    } else {
+      sprite.setAlpha(1);
+      if (unit.team === 'enemy') sprite.setTint(0xff806e);
+    }
+  }
+
+  private destroyUnitAuxiliary(id: string): void {
+    const shadow = this.unitShadows.get(id);
+    if (shadow) {
+      this.tweens.killTweensOf(shadow);
+      shadow.destroy();
+      this.unitShadows.delete(id);
+    }
+    this.unitMotion.delete(id);
+  }
+
+  private syncTower(tower: TowerState): void {
+    let sprite = this.towerSprites.get(tower.id);
+    const frame = tower.team === 'player' ? (tower.kind === 'core' ? 1 : 0) : tower.kind === 'core' ? 3 : 2;
+    const size = (tower.kind === 'core' ? 238 : 182) * getPerspectiveScale(tower.y);
+    if (!sprite) {
+      sprite = this.add
+        .image(tower.x, tower.y, 'tower-sprites', frame)
+        .setDisplaySize(size, size);
+      this.towerSprites.set(tower.id, sprite);
+    }
+    sprite.setPosition(tower.x, tower.y);
+    sprite.setDisplaySize(size, size);
+    sprite.setDepth(3 + tower.y / 1000);
+    if (tower.hp <= 0 && !this.pendingDeathIds.has(tower.id)) {
+      sprite.setAlpha(0.18).setTint(0x25343a);
+    } else {
+      sprite.clearTint().setAlpha(1);
+    }
+  }
+
+  private syncInstallation(installation: InstallationState): void {
+    let sprite = this.installationSprites.get(installation.id);
+    const definition = INSTALLATIONS[installation.kind];
+    const size = INSTALLATION_SIZES[installation.kind] * getPerspectiveScale(installation.y);
+    if (!sprite) {
+      sprite = this.add
+        .image(installation.x, installation.y, 'system-sprites', definition.frame)
+        .setDisplaySize(size, size);
+      this.installationSprites.set(installation.id, sprite);
+    }
+
+    sprite
+      .setPosition(installation.x, installation.y)
+      .setDisplaySize(size, size)
+      .setDepth(4.7 + installation.y / 1000)
+      .setRotation(0)
+      .clearTint();
+
+    if (installation.hp <= 0 || installation.remainingMs <= 0) {
+      sprite.setAlpha(0.18).setTint(0x25343a);
+    } else if (installation.disabledMs > 0) {
+      const flicker = 0.55 + Math.sin(this.time.now / 75) * 0.08;
+      sprite.setAlpha(flicker).setTint(DISABLED_COLOR);
+    } else {
+      sprite.setAlpha(1);
+      if (installation.team === 'enemy') sprite.setTint(0xff806e);
+    }
+  }
+
+  private syncNanoZone(zone: ProgramZoneState): void {
+    let visual = this.nanoZoneVisuals.get(zone.id);
+    if (!visual) {
+      visual = {
+        field: this.add.graphics(),
+        core: this.add.image(zone.x, zone.y, 'system-sprites', PROGRAMS.nano.frame),
+      };
+      this.nanoZoneVisuals.set(zone.id, visual);
+    }
+
+    const ratio = Math.max(0, Math.min(1, zone.remainingMs / PROGRAMS.nano.durationMs));
+    const pulse = 0.5 + Math.sin(this.time.now / 180) * 0.5;
+    const color = teamColor(zone.team);
+    const radius = zone.radius;
+    visual.field
+      .clear()
+      .fillStyle(color, 0.045 + ratio * 0.055)
+      .fillCircle(0, 0, radius)
+      .lineStyle(2, color, 0.35 + ratio * 0.45)
+      .strokeCircle(0, 0, radius)
+      .lineStyle(1, 0xc8fff4, 0.12 + pulse * 0.16)
+      .strokeCircle(0, 0, radius * (0.58 + pulse * 0.09));
+    for (let index = 0; index < 8; index += 1) {
+      const angle = (Math.PI * 2 * index) / 8 + this.time.now / 2400;
+      const inner = radius * 0.72;
+      const outer = radius * 0.9;
+      visual.field.lineBetween(
+        Math.cos(angle) * inner,
+        Math.sin(angle) * inner,
+        Math.cos(angle) * outer,
+        Math.sin(angle) * outer,
+      );
+    }
+    visual.field.setPosition(zone.x, zone.y).setDepth(2 + zone.y / 1000).setAlpha(Math.max(0.2, ratio));
+
+    const iconSize = (52 + pulse * 7) * getPerspectiveScale(zone.y);
+    visual.core
+      .setPosition(zone.x, zone.y)
+      .setDisplaySize(iconSize, iconSize)
+      .setDepth(2.2 + zone.y / 1000)
+      .setAlpha(0.28 + ratio * 0.34)
+      .clearTint();
+    if (zone.team === 'enemy') visual.core.setTint(ENEMY_COLOR);
+  }
+
+  private drawStatus(snapshot: MatchSnapshot): void {
+    this.statusLayer.clear();
+    const activeCommanders = snapshot.units.filter((unit) => unit.kind === 'vector' && unit.hp > 0 && unit.overdriveMs > 0);
+
+    for (const commander of activeCommanders) {
+      const color = commander.team === 'player' ? OVERDRIVE_COLOR : ENEMY_COLOR;
+      const pulse = 0.5 + Math.sin(this.time.now / 120) * 0.5;
+      this.statusLayer
+        .fillStyle(color, 0.025 + pulse * 0.025)
+        .fillCircle(commander.x, commander.y, OVERDRIVE_AURA_RADIUS)
+        .lineStyle(3, color, 0.48 + pulse * 0.32)
+        .strokeCircle(commander.x, commander.y, OVERDRIVE_AURA_RADIUS)
+        .lineStyle(1, 0xfff1b0, 0.28)
+        .strokeCircle(commander.x, commander.y, OVERDRIVE_AURA_RADIUS * (0.7 + pulse * 0.06));
+
+      for (const unit of snapshot.units) {
+        if (unit.team !== commander.team || unit.hp <= 0 || unit.disabledMs > 0) continue;
+        if (Math.hypot(unit.x - commander.x, unit.y - commander.y) > OVERDRIVE_AURA_RADIUS) continue;
+        const radius = Math.max(17, ROBOT_SIZES[unit.kind] * 0.25 * getPerspectiveScale(unit.y));
+        this.statusLayer.lineStyle(2, color, 0.38 + pulse * 0.25).strokeCircle(unit.x, unit.y, radius);
+      }
+    }
+
+    for (const unit of snapshot.units) {
+      if (unit.hp <= 0 || unit.disabledMs <= 0) continue;
+      const scale = getPerspectiveScale(unit.y);
+      const radius = Math.max(20, ROBOT_SIZES[unit.kind] * 0.3 * scale);
+      this.drawDisabledMarker(unit.x, unit.y, radius);
+    }
+
+    for (const installation of snapshot.installations) {
+      if (installation.hp <= 0 || installation.remainingMs <= 0 || installation.disabledMs <= 0) continue;
+      const scale = getPerspectiveScale(installation.y);
+      const radius = Math.max(24, INSTALLATION_SIZES[installation.kind] * 0.29 * scale);
+      this.drawDisabledMarker(installation.x, installation.y, radius);
+    }
+  }
+
+  private drawDisabledMarker(x: number, y: number, radius: number): void {
+    const pulse = 0.55 + Math.sin(this.time.now / 85) * 0.2;
+    this.statusLayer
+      .lineStyle(2, DISABLED_COLOR, pulse)
+      .strokeCircle(x, y, radius)
+      .lineStyle(3, 0xc9d8dc, pulse)
+      .lineBetween(x - radius * 0.35, y - radius * 0.35, x + radius * 0.35, y + radius * 0.35)
+      .lineBetween(x + radius * 0.35, y - radius * 0.35, x - radius * 0.35, y + radius * 0.35);
+  }
+
+  private drawHealth(units: UnitState[], towers: TowerState[], installations: InstallationState[]): void {
+    this.healthLayer.clear();
+    for (const tower of towers) {
+      if (tower.hp <= 0) continue;
+      const scale = getPerspectiveScale(tower.y);
+      const width = (tower.kind === 'core' ? 150 : 112) * scale;
+      this.drawHealthBar(
+        tower.x - width / 2,
+        tower.y - (tower.kind === 'core' ? 102 : 82) * scale,
+        width,
+        tower.hp / tower.maxHp,
+        tower.team,
+      );
+    }
+    for (const unit of units) {
+      if (unit.hp <= 0 || unit.hp >= unit.maxHp) continue;
+      const scale = getPerspectiveScale(unit.y);
+      const width = Math.max(34, ROBOT_SIZES[unit.kind] * 0.54 * scale);
+      const displayHeight = ROBOT_SIZES[unit.kind] * scale * ARENA_UNIT_DISPLAY_HEIGHT_RATIO[unit.kind];
+      this.drawHealthBar(
+        unit.x - width / 2,
+        unit.y - displayHeight * 0.53,
+        width,
+        unit.hp / unit.maxHp,
+        unit.team,
+      );
+    }
+    for (const installation of installations) {
+      if (installation.hp <= 0 || installation.remainingMs <= 0) continue;
+      const definition = INSTALLATIONS[installation.kind];
+      const scale = getPerspectiveScale(installation.y);
+      const width = Math.max(58, INSTALLATION_SIZES[installation.kind] * 0.62 * scale);
+      const y = installation.y - INSTALLATION_SIZES[installation.kind] * 0.34 * scale;
+      this.drawHealthBar(installation.x - width / 2, y, width, installation.hp / installation.maxHp, installation.team);
+      this.drawLifetimeBar(
+        installation.x - width / 2,
+        y + 10,
+        width,
+        installation.remainingMs / definition.lifetimeMs,
+        installation.disabledMs > 0,
+      );
+    }
+  }
+
+  private drawHealthBar(x: number, y: number, width: number, ratio: number, team: Team): void {
+    this.healthLayer.fillStyle(0x061014, 0.88).fillRoundedRect(x - 2, y - 2, width + 4, 9, 4);
+    this.healthLayer
+      .fillStyle(team === 'player' ? PLAYER_COLOR : ENEMY_COLOR, 1)
+      .fillRoundedRect(x, y, Math.max(0, width * Math.min(1, ratio)), 5, 2);
+  }
+
+  private drawLifetimeBar(x: number, y: number, width: number, ratio: number, disabled: boolean): void {
+    this.healthLayer.fillStyle(0x061014, 0.82).fillRoundedRect(x - 2, y - 2, width + 4, 7, 3);
+    this.healthLayer
+      .fillStyle(disabled ? DISABLED_COLOR : INSTALLATION_COLOR, 0.9)
+      .fillRoundedRect(x, y, Math.max(0, width * Math.min(1, ratio)), 3, 1);
+  }
+
+  private drawDeployZone(selected: CardId | null, active: boolean): void {
+    this.deployLayer.clear();
+    if (!selected || !active) return;
+    const card = CARDS[selected];
+    const color = this.cardColor(card, 'player');
+    if (card.category === 'program') {
+      this.deployLayer
+        .fillStyle(color, 0.025)
+        .fillRect(70, 55, 1460, 595)
+        .lineStyle(2, color, 0.5)
+        .strokeRect(70, 55, 1460, 595)
+        .lineStyle(1, color, 0.12)
+        .lineBetween(800, 55, 800, 650);
+      return;
+    }
+
+    this.deployLayer.fillStyle(color, 0.055).beginPath();
+    this.deployLayer.moveTo(310, 360).lineTo(1290, 360).lineTo(1390, 630).lineTo(210, 630).closePath().fillPath();
+    this.deployLayer.lineStyle(2, color, 0.58).beginPath();
+    this.deployLayer.moveTo(310, 360).lineTo(1290, 360).lineTo(1390, 630).lineTo(210, 630).closePath().strokePath();
+    this.deployLayer.lineStyle(1, color, 0.2).lineBetween(800, 370, 800, 620);
+  }
+
+  private updateGhost(): void {
+    if (!this.ghost || !this.targetLayer) return;
+    const snapshot = this.bridge.getSnapshot();
+    this.targetLayer.clear();
+    if (!snapshot.selected || snapshot.phase !== 'playing') {
+      this.ghost.setVisible(false);
+      return;
+    }
+
+    const card = CARDS[snapshot.selected];
+    const valid = this.isPreviewValid(snapshot, snapshot.selected, this.latestPointer.x, this.latestPointer.y);
+    const color = valid ? this.cardColor(card, 'player') : INVALID_COLOR;
+    const scale = getPerspectiveScale(this.latestPointer.y);
+    let size: number;
+    let radius: number;
+
+    if (card.category === 'program') {
+      size = 84 * scale;
+      radius = card.radius;
+    } else if (card.category === 'installation') {
+      size = INSTALLATION_SIZES[card.id] * scale;
+      radius = Math.max(38, card.radius * scale + 12);
+    } else {
+      size = ROBOT_SIZES[card.id as RobotKind] * scale;
+      radius = Math.max(30, card.radius * scale + 10);
+    }
+
+    this.ghost.setVisible(true).setPosition(this.latestPointer.x, this.latestPointer.y);
+    if (card.category === 'unit' || card.category === 'commander') {
+      const kind = card.id as RobotKind;
+      this.ghost
+        .setTexture(ARENA_UNIT_ATLAS_KEY, getArenaUnitFrame(kind, 'away', 0))
+        .setDisplaySize(size, size * ARENA_UNIT_DISPLAY_HEIGHT_RATIO[kind]);
+    } else {
+      this.ghost
+        .setTexture(textureKey(card.sheet), card.frame)
+        .setDisplaySize(size, size);
+    }
+    this.ghost
+      .setDepth(7 + this.latestPointer.y / 1000)
+      .setRotation(0)
+      .setFlipX(false)
+      .clearTint()
+      .setAlpha(valid ? 0.72 : 0.46)
+      .setTint(color);
+
+    const x = this.latestPointer.x;
+    const y = this.latestPointer.y;
+    this.targetLayer
+      .setDepth(6.8 + y / 1000)
+      .fillStyle(color, card.category === 'program' ? 0.075 : 0.045)
+      .fillCircle(x, y, radius)
+      .lineStyle(card.category === 'program' ? 3 : 2, color, valid ? 0.78 : 0.62)
+      .strokeCircle(x, y, radius)
+      .lineStyle(1, color, 0.45)
+      .lineBetween(x - radius - 12, y, x - radius * 0.58, y)
+      .lineBetween(x + radius * 0.58, y, x + radius + 12, y)
+      .lineBetween(x, y - radius - 12, x, y - radius * 0.58)
+      .lineBetween(x, y + radius * 0.58, x, y + radius + 12);
+  }
+
+  private isPreviewValid(snapshot: MatchSnapshot, cardId: CardId, x: number, y: number): boolean {
+    const card = CARDS[cardId];
+    if (snapshot.charge.player + 0.001 < card.cost) return false;
+    if (card.category === 'commander' && snapshot.commander.player.deployed) return false;
+    if (card.category === 'program') return x >= 70 && x <= 1530 && y >= 55 && y <= 650;
+    if (y < 360 || y > 630 || x < 225 || x > 1375) return false;
+    const blockedByTower = snapshot.towers.some(
+      (tower) => tower.team === 'player' && tower.hp > 0 && Math.hypot(tower.x - x, tower.y - y) < (tower.kind === 'core' ? 112 : 88),
+    );
+    if (blockedByTower) return false;
+    if (card.category !== 'installation') return true;
+    return !snapshot.installations.some(
+      (installation) => installation.team === 'player' && installation.hp > 0 && Math.hypot(installation.x - x, installation.y - y) < 96,
+    );
+  }
+
+  private cardColor(card: CardDefinition, team: Team): number {
+    if (team === 'enemy') return ENEMY_COLOR;
+    if (card.category === 'program') return PROGRAM_COLOR;
+    if (card.category === 'installation') return INSTALLATION_COLOR;
+    if (card.category === 'commander') return OVERDRIVE_COLOR;
+    return PLAYER_COLOR;
+  }
+
+  private onGameEvent(event: GameEvent): void {
+    switch (event.type) {
+      case 'cardPlayed': {
+        const card = CARDS[event.cardId];
+        this.spawnRing(event.x, event.y, this.cardColor(card, event.team), 18, card.category === 'program' ? 66 : 54, 360, 6.5);
+        return;
+      }
+      case 'programCast':
+        this.showProgramCast(event);
+        return;
+      case 'installationPlaced':
+        this.showInstallationPlaced(event);
+        return;
+      case 'overdriveActivated':
+        this.showOverdrive(event);
+        return;
+      case 'projectileFired':
+        this.showProjectile(event);
+        return;
+      case 'entityDestroyed':
+        this.handleEntityDestroyed(event);
+        return;
+      case 'impact': {
+        const color = event.amount < 0 ? 0x85ffd8 : event.team === 'player' ? 0x48f4e0 : 0xff8a63;
+        const pulse = this.add.circle(event.x, event.y, 8, color, 0.9).setDepth(7.8);
+        this.tweens.add({ targets: pulse, scale: 2.8, alpha: 0, duration: 180, onComplete: () => pulse.destroy() });
+        return;
+      }
+      case 'towerDestroyed': {
+        const color = teamColor(event.tower.team);
+        this.cameras.main.shake(260, 0.007);
+        for (let index = 0; index < 8; index += 1) {
+          const spark = this.trackCombatVfx(
+            this.add.circle(event.tower.x, event.tower.y, 6, color, 1).setDepth(9),
+          );
+          const angle = (Math.PI * 2 * index) / 8;
+          this.tweens.add({
+            targets: spark,
+            x: event.tower.x + Math.cos(angle) * 90,
+            y: event.tower.y + Math.sin(angle) * 90,
+            alpha: 0,
+            duration: 420,
+            ease: 'Cubic.Out',
+            onComplete: () => this.destroyCombatVfx(spark),
+          });
+        }
+        return;
+      }
+      default:
+        return;
+    }
+  }
+
+  private showProjectile(event: Extract<GameEvent, { type: 'projectileFired' }>): void {
+    this.pendingAttacks.set(event.attackId, { projectile: event.projectile, deaths: [] });
+
+    const sourceOrigin = this.getProjectileSourceOrigin(event.source);
+    const dx = event.target.x - sourceOrigin.x;
+    const dy = event.target.y - sourceOrigin.y;
+    const distance = Math.max(0.001, Math.hypot(dx, dy));
+    const directionX = dx / distance;
+    const directionY = dy / distance;
+    const sourceScale = getPerspectiveScale(event.source.y);
+    const targetScale = getPerspectiveScale(event.target.y);
+    const muzzleOffset = Math.max(10, event.source.radius * sourceScale * 0.72);
+    const startX = sourceOrigin.x + directionX * muzzleOffset;
+    const startY = sourceOrigin.y + directionY * muzzleOffset;
+    const visualDistance = Math.hypot(event.target.x - startX, event.target.y - startY);
+    const baseSize = event.projectile === 'rocket' ? 150 : 96;
+    const startSize = baseSize * sourceScale;
+    const endSize = baseSize * targetScale;
+    const duration = event.projectile === 'rocket'
+      ? Math.max(170, Math.min(460, visualDistance / 1.15))
+      : Math.max(90, Math.min(260, visualDistance / 2));
+    const projectile = this.trackCombatVfx(
+      this.add
+        .image(startX, startY, 'combat-vfx-sprites', event.projectile === 'rocket' ? 1 : 0)
+        .setDisplaySize(startSize, startSize)
+        .setDepth(7.25 + startY / 2_000)
+        .setRotation(Math.atan2(dy, dx)),
+    );
+    if (event.source.team === 'enemy') projectile.setTint(0xff8a72);
+
+    const targetScaleRatio = endSize / Math.max(1, startSize);
+    const endScaleX = projectile.scaleX * targetScaleRatio;
+    const endScaleY = projectile.scaleY * targetScaleRatio;
+    const maxTrailPips = event.projectile === 'rocket' ? 5 : 3;
+    let trailPips = 0;
+    let nextTrailAt = this.time.now + (event.projectile === 'rocket' ? 54 : 42);
+
+    this.tweens.add({
+      targets: projectile,
+      x: event.target.x,
+      y: event.target.y,
+      scaleX: endScaleX,
+      scaleY: endScaleY,
+      depth: 7.25 + event.target.y / 2_000,
+      duration,
+      ease: event.projectile === 'rocket' ? 'Sine.In' : 'Linear',
+      onUpdate: () => {
+        if (trailPips >= maxTrailPips || this.time.now < nextTrailAt) return;
+        trailPips += 1;
+        nextTrailAt += duration / (maxTrailPips + 1);
+        this.spawnProjectileTrail(projectile.x, projectile.y, event.source.team, event.projectile, projectile.depth - 0.02);
+      },
+      onComplete: () => {
+        this.destroyCombatVfx(projectile);
+        this.showProjectileImpact(event.target.x, event.target.y, event.source.team, event.projectile);
+        const pending = this.pendingAttacks.get(event.attackId);
+        this.pendingAttacks.delete(event.attackId);
+        for (const death of pending?.deaths ?? []) this.showDestruction(death, pending?.projectile ?? event.projectile);
+      },
+    });
+  }
+
+  private getProjectileSourceOrigin(source: CombatEntityRef): { x: number; y: number } {
+    if (source.entityType !== 'unit') return { x: source.x, y: source.y };
+
+    const unit = this.bridge.getSnapshot().units.find((candidate) => candidate.id === source.id);
+    const sprite = this.unitSprites.get(source.id);
+    if (!unit || !sprite) return { x: source.x, y: source.y };
+
+    return {
+      x: source.x,
+      y: getArenaUnitBodyOriginY(unit.kind, source.y, sprite.displayHeight),
+    };
+  }
+
+  private spawnProjectileTrail(
+    x: number,
+    y: number,
+    team: Team,
+    projectile: ProjectileKind,
+    depth: number,
+  ): void {
+    const scale = getPerspectiveScale(y);
+    const pip = this.trackCombatVfx(
+      this.add
+        .circle(x, y, (projectile === 'rocket' ? 4.5 : 2.8) * scale, teamColor(team), projectile === 'rocket' ? 0.5 : 0.42)
+        .setDepth(depth),
+    );
+    this.tweens.add({
+      targets: pip,
+      scale: 0.28,
+      alpha: 0,
+      duration: projectile === 'rocket' ? 190 : 125,
+      ease: 'Quad.Out',
+      onComplete: () => this.destroyCombatVfx(pip),
+    });
+  }
+
+  private showProjectileImpact(x: number, y: number, team: Team, projectile: ProjectileKind): void {
+    const scale = getPerspectiveScale(y);
+    const size = (projectile === 'rocket' ? 132 : 92) * scale;
+    const impact = this.trackCombatVfx(
+      this.add
+        .image(x, y, 'combat-vfx-sprites', 2)
+        .setDisplaySize(size, size)
+        .setDepth(8.45 + y / 2_000)
+        .setAlpha(0.94),
+    );
+    if (team === 'enemy') impact.setTint(0xffab86);
+    const startScaleX = impact.scaleX;
+    const startScaleY = impact.scaleY;
+    this.tweens.add({
+      targets: impact,
+      scaleX: startScaleX * 1.28,
+      scaleY: startScaleY * 1.28,
+      alpha: 0,
+      duration: projectile === 'rocket' ? 280 : 190,
+      ease: 'Quad.Out',
+      onComplete: () => this.destroyCombatVfx(impact),
+    });
+  }
+
+  private handleEntityDestroyed(event: EntityDestroyedEvent): void {
+    if (this.pendingDeathIds.has(event.entity.id)) return;
+    this.pendingDeathIds.add(event.entity.id);
+
+    if (event.attackId !== undefined) {
+      const pending = this.pendingAttacks.get(event.attackId);
+      if (pending) {
+        pending.deaths.push(event);
+        return;
+      }
+    }
+
+    this.showDestruction(event);
+  }
+
+  private showDestruction(event: EntityDestroyedEvent, projectile?: ProjectileKind): void {
+    const { entity } = event;
+    const scale = getPerspectiveScale(entity.y);
+    const decay = event.cause === 'decay';
+    const baseSize = entity.entityType === 'tower' ? 270 : entity.entityType === 'installation' ? 210 : 158;
+    const size = (decay ? Math.min(baseSize, 92) : baseSize) * scale;
+    const effect = this.trackCombatVfx(
+      this.add
+        .image(entity.x, entity.y, 'combat-vfx-sprites', decay ? 2 : 3)
+        .setDisplaySize(size, size)
+        .setDepth(8.65 + entity.y / 2_000)
+        .setAlpha(decay ? 0.42 : 0.98),
+    );
+    if (decay) effect.setTint(DISABLED_COLOR);
+
+    const startScaleX = effect.scaleX;
+    const startScaleY = effect.scaleY;
+    this.tweens.add({
+      targets: effect,
+      scaleX: startScaleX * (decay ? 0.82 : 1.22),
+      scaleY: startScaleY * (decay ? 0.82 : 1.22),
+      alpha: 0,
+      duration: decay ? 280 : entity.entityType === 'tower' ? 580 : 460,
+      ease: decay ? 'Quad.In' : 'Cubic.Out',
+      onComplete: () => this.destroyCombatVfx(effect),
+    });
+
+    if (!decay && projectile === 'rocket' && entity.entityType !== 'tower') {
+      this.cameras.main.shake(90, 0.0018);
+    }
+    this.collapseDestroyedEntity(entity, decay);
+  }
+
+  private collapseDestroyedEntity(entity: CombatEntityRef, decay: boolean): void {
+    const sprite = this.getEntitySprite(entity);
+    if (!sprite) {
+      if (entity.entityType === 'unit') this.destroyUnitAuxiliary(entity.id);
+      this.pendingDeathIds.delete(entity.id);
+      return;
+    }
+
+    if (entity.entityType === 'tower') {
+      this.pendingDeathIds.delete(entity.id);
+      sprite.setAlpha(0.18).setTint(0x25343a);
+      return;
+    }
+
+    this.tweens.killTweensOf(sprite);
+    if (entity.entityType === 'unit') {
+      const shadow = this.unitShadows.get(entity.id);
+      if (shadow) {
+        this.tweens.killTweensOf(shadow);
+        this.tweens.add({
+          targets: shadow,
+          alpha: 0,
+          scaleX: shadow.scaleX * 0.7,
+          scaleY: shadow.scaleY * 0.7,
+          duration: decay ? 300 : 210,
+          ease: 'Quad.In',
+        });
+      }
+    }
+    const startScaleX = sprite.scaleX;
+    const startScaleY = sprite.scaleY;
+    this.tweens.add({
+      targets: sprite,
+      y: sprite.y + (decay ? 12 : 7) * getPerspectiveScale(entity.y),
+      rotation: sprite.rotation + (entity.team === 'player' ? -0.16 : 0.16),
+      scaleX: startScaleX * (decay ? 0.72 : 0.58),
+      scaleY: startScaleY * (decay ? 0.42 : 0.62),
+      alpha: 0,
+      duration: decay ? 300 : 210,
+      ease: 'Quad.In',
+      onComplete: () => {
+        sprite.destroy();
+        if (entity.entityType === 'unit') {
+          this.unitSprites.delete(entity.id);
+          this.destroyUnitAuxiliary(entity.id);
+        } else this.installationSprites.delete(entity.id);
+        this.pendingDeathIds.delete(entity.id);
+      },
+    });
+  }
+
+  private getEntitySprite(entity: CombatEntityRef): GameObjects.Image | GameObjects.Sprite | undefined {
+    if (entity.entityType === 'unit') return this.unitSprites.get(entity.id);
+    if (entity.entityType === 'installation') return this.installationSprites.get(entity.id);
+    return this.towerSprites.get(entity.id);
+  }
+
+  private trackCombatVfx<T extends GameObjects.GameObject>(object: T): T {
+    this.combatVfx.add(object);
+    return object;
+  }
+
+  private destroyCombatVfx(object: GameObjects.GameObject): void {
+    this.combatVfx.delete(object);
+    if (!object.active) return;
+    this.tweens.killTweensOf(object);
+    object.destroy();
+  }
+
+  private clearCombatVfx(): void {
+    for (const object of this.combatVfx) {
+      this.tweens.killTweensOf(object);
+      if (object.active) object.destroy();
+    }
+    this.combatVfx.clear();
+    this.pendingAttacks.clear();
+
+    for (const id of this.pendingDeathIds) {
+      const unit = this.unitSprites.get(id);
+      if (unit) {
+        this.tweens.killTweensOf(unit);
+        unit.destroy();
+        this.unitSprites.delete(id);
+      }
+      this.destroyUnitAuxiliary(id);
+      const installation = this.installationSprites.get(id);
+      if (installation) {
+        this.tweens.killTweensOf(installation);
+        installation.destroy();
+        this.installationSprites.delete(id);
+      }
+      const tower = this.towerSprites.get(id);
+      if (tower) {
+        this.tweens.killTweensOf(tower);
+        tower.clearTint().setAlpha(1);
+      }
+    }
+    this.pendingDeathIds.clear();
+  }
+
+  private showProgramCast(event: Extract<GameEvent, { type: 'programCast' }>): void {
+    const definition = PROGRAMS[event.kind];
+    const color = teamColor(event.team);
+    const frame = definition.frame;
+    const size = event.kind === 'emp' ? 112 : 94;
+    this.spawnBurstIcon(frame, event.x, event.y, size * getPerspectiveScale(event.y), color, 520);
+    this.spawnRing(event.x, event.y, color, 14, event.radius, event.kind === 'emp' ? 430 : 620, 8.8);
+    if (event.kind === 'emp') {
+      this.spawnRing(event.x, event.y, 0xd6ffff, 8, event.radius * 0.72, 300, 8.9, 90);
+      this.cameras.main.shake(110, 0.0028);
+    }
+  }
+
+  private showInstallationPlaced(event: Extract<GameEvent, { type: 'installationPlaced' }>): void {
+    const definition = INSTALLATIONS[event.kind];
+    const color = teamColor(event.team);
+    this.spawnRing(event.x, event.y, color, 18, definition.radius + 58, 440, 7.2);
+    this.spawnBurstIcon(definition.frame, event.x, event.y, 88 * getPerspectiveScale(event.y), color, 390, 0.32);
+  }
+
+  private showOverdrive(event: Extract<GameEvent, { type: 'overdriveActivated' }>): void {
+    const color = event.team === 'player' ? OVERDRIVE_COLOR : ENEMY_COLOR;
+    this.spawnBurstIcon(5, event.x, event.y, 96 * getPerspectiveScale(event.y), color, 560);
+    this.spawnRing(event.x, event.y, color, 26, OVERDRIVE_AURA_RADIUS, 520, 8.8);
+    this.spawnRing(event.x, event.y, 0xfff2b5, 18, OVERDRIVE_AURA_RADIUS * 0.68, 380, 8.9, 70);
+    this.cameras.main.shake(150, 0.0035);
+  }
+
+  private spawnBurstIcon(
+    frame: number,
+    x: number,
+    y: number,
+    size: number,
+    color: number,
+    duration: number,
+    startAlpha = 0.78,
+  ): void {
+    const icon = this.add
+      .image(x, y, 'system-sprites', frame)
+      .setDisplaySize(size, size)
+      .setDepth(9)
+      .setAlpha(startAlpha)
+      .setTint(color);
+    const startScaleX = icon.scaleX;
+    const startScaleY = icon.scaleY;
+    this.tweens.add({
+      targets: icon,
+      scaleX: startScaleX * 1.5,
+      scaleY: startScaleY * 1.5,
+      alpha: 0,
+      duration,
+      ease: 'Quad.Out',
+      onComplete: () => icon.destroy(),
+    });
+  }
+
+  private spawnRing(
+    x: number,
+    y: number,
+    color: number,
+    startRadius: number,
+    endRadius: number,
+    duration: number,
+    depth: number,
+    delay = 0,
+  ): void {
+    const ring = this.add.circle(x, y, startRadius, color, 0).setStrokeStyle(4, color, 0.9).setDepth(depth).setAlpha(1);
+    this.tweens.add({
+      targets: ring,
+      radius: endRadius,
+      alpha: 0,
+      delay,
+      duration,
+      ease: 'Quad.Out',
+      onComplete: () => ring.destroy(),
+    });
+  }
+}
