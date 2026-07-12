@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  CARDS,
   DEFAULT_ENEMY_DECK,
   DEFAULT_PLAYER_DECK,
   DECK_SIZE,
@@ -14,9 +15,11 @@ import {
   PROGRAMS,
   PROGRAM_TOWER_DAMAGE_MULTIPLIER,
   ROBOTS,
+  TOWER_WEAPONS,
   UPGRADE_COSTS,
   UPGRADE_MULTIPLIERS,
   createDefaultMatchConfig,
+  createDefaultTowerWeapons,
   createEmptyRobotUpgrades,
   createTowers,
   getEffectiveRobotStats,
@@ -82,6 +85,58 @@ describe('MatchEngine', () => {
     expect(snapshot.towers.filter((tower) => tower.kind === 'core')).toHaveLength(2);
   });
 
+  it('configures each player Relay with a distinct weapon tradeoff and splash behavior', () => {
+    const towers = createTowers(1, { left: 'rocket', right: 'flame' });
+    expect(towers.find((tower) => tower.id === 'player-left')).toMatchObject({
+      weapon: 'rocket',
+      damage: TOWER_WEAPONS.rocket.damage,
+      attackInterval: TOWER_WEAPONS.rocket.attackInterval,
+      projectile: 'rocket',
+      splashRadius: TOWER_WEAPONS.rocket.splashRadius,
+    });
+    expect(towers.find((tower) => tower.id === 'player-right')).toMatchObject({
+      weapon: 'flame',
+      damage: TOWER_WEAPONS.flame.damage,
+      attackInterval: TOWER_WEAPONS.flame.attackInterval,
+      projectile: 'flame',
+    });
+    expect(towers.find((tower) => tower.id === 'enemy-left')?.weapon).toBe('gun');
+    expect(towers.find((tower) => tower.id === 'player-core')).toMatchObject({
+      weapon: 'rocket',
+      damage: 118,
+      attackInterval: 0.85,
+    });
+
+    const events: GameEvent[] = [];
+    const engine = new MatchEngine((event) => events.push(event));
+    expect(engine.dispatch({
+      type: 'start',
+      config: {
+        ...createDefaultMatchConfig(),
+        playerTowerWeapons: { left: 'rocket', right: 'flame' },
+      },
+    })).toBe(true);
+    const primary = harness(engine).spawnUnit('enemy', 'brute', 605, 390);
+    const secondary = harness(engine).spawnUnit('enemy', 'brute', 560, 390);
+
+    engine.step(FIXED_STEP_MS);
+
+    expect(events).toContainEqual(expect.objectContaining({
+      type: 'projectileFired',
+      projectile: 'rocket',
+      source: expect.objectContaining({ id: 'player-left' }),
+      amount: TOWER_WEAPONS.rocket.damage,
+      splashRadius: TOWER_WEAPONS.rocket.splashRadius,
+    }));
+    expect(engine.getSnapshot().units.find((unit) => unit.id === primary.id)?.hp)
+      .toBe(ROBOTS.brute.maxHp - TOWER_WEAPONS.rocket.damage);
+    expect(engine.getSnapshot().units.find((unit) => unit.id === secondary.id)?.hp)
+      .toBeCloseTo(
+        ROBOTS.brute.maxHp - TOWER_WEAPONS.rocket.damage * TOWER_WEAPONS.rocket.splashMultiplier,
+        5,
+      );
+  });
+
   it('validates exact eight-card unique decks and complete match configs at runtime', () => {
     expect(DECK_SIZE).toBe(8);
     expect(HAND_SIZE).toBe(4);
@@ -92,13 +147,22 @@ describe('MatchEngine', () => {
 
     const candidate = { modeId: 'turbo-grid', playerDeck: [...PROGRAM_TEST_DECK] };
     const validated = validateMatchConfig(candidate);
-    expect(validated).toEqual({ ...candidate, playerUpgrades: createEmptyRobotUpgrades() });
+    expect(validated).toEqual({
+      ...candidate,
+      playerUpgrades: createEmptyRobotUpgrades(),
+      playerTowerWeapons: createDefaultTowerWeapons(),
+    });
     expect(validated?.playerDeck).not.toBe(candidate.playerDeck);
     expect(validateMatchConfig({ modeId: 'ghost-mode', playerDeck: DEFAULT_PLAYER_DECK })).toBeNull();
+    expect(validateMatchConfig({
+      ...candidate,
+      playerTowerWeapons: { left: 'laser', right: 'gun' },
+    })).toBeNull();
     expect(createDefaultMatchConfig()).toEqual({
       modeId: 'core-siege',
       playerDeck: DEFAULT_PLAYER_DECK,
       playerUpgrades: createEmptyRobotUpgrades(),
+      playerTowerWeapons: createDefaultTowerWeapons(),
     });
   });
 
@@ -129,6 +193,11 @@ describe('MatchEngine', () => {
       ...valid,
       playerUpgrades: { zip: { output: 2, range: 2, speed: 2 }, pulse: { output: 1 } },
     })).toBeNull();
+    expect(validateMatchConfig({
+      ...valid,
+      playerFirmwareBudget: 7,
+      playerUpgrades: { zip: { output: 2, range: 2, speed: 2 }, pulse: { output: 1 } },
+    })?.playerFirmwareBudget).toBe(7);
     expect(validateMatchConfig({
       ...valid,
       playerUpgrades: { rail: { output: 1 } },
@@ -214,7 +283,7 @@ describe('MatchEngine', () => {
     const before = engine.getSnapshot();
     const played = before.hands.player[0];
 
-    expect(engine.dispatch({ type: 'playCard', team: 'player', cardId: played, x: 600, y: 600 })).toBe(true);
+    expect(engine.dispatch({ type: 'playCard', team: 'player', cardId: played, x: 680, y: 420 })).toBe(true);
     const after = engine.getSnapshot();
     expect(after.hands.player).toEqual([...before.hands.player.slice(1), before.next.player]);
     expect(after.hands.player).toHaveLength(HAND_SIZE);
@@ -264,7 +333,7 @@ describe('MatchEngine', () => {
     startWithDeck(engine, PROGRAM_TEST_DECK, 'turbo-grid');
     const opening = engine.getSnapshot();
     const zip = opening.hands.player.includes('zip') ? 'zip' : opening.hands.player[0];
-    expect(engine.dispatch({ type: 'playCard', team: 'player', cardId: zip, x: 600, y: 600 })).toBe(true);
+    expect(engine.dispatch({ type: 'playCard', team: 'player', cardId: zip, x: 680, y: 420 })).toBe(true);
     engine.dispatch({ type: 'upgradeRobot', team: 'player', robotId: 'zip', stat: 'output' });
     const enemyRelay = engine.getSnapshot().towers.find((tower) => tower.id === 'enemy-left')!;
     engine.debugDamageTower(enemyRelay.id, enemyRelay.hp);
@@ -293,7 +362,7 @@ describe('MatchEngine', () => {
     startWithDeck(engine, PROGRAM_TEST_DECK, 'relay-rush');
     const playing = engine.getSnapshot();
     const cardId = playing.hands.player[0];
-    engine.dispatch({ type: 'playCard', team: 'player', cardId, x: 600, y: 600 });
+    engine.dispatch({ type: 'playCard', team: 'player', cardId, x: 680, y: 420 });
 
     expect(engine.dispatch({ type: 'returnToLobby' })).toBe(true);
     const lobby = engine.getSnapshot();
@@ -345,7 +414,7 @@ describe('MatchEngine', () => {
       next: { player: 'sentry' },
     });
 
-    expect(engine.dispatch({ type: 'playCard', team: 'player', cardId: 'zip', x: 600, y: 530 })).toBe(true);
+    expect(engine.dispatch({ type: 'playCard', team: 'player', cardId: 'zip', x: 680, y: 420 })).toBe(true);
     const snapshot = engine.getSnapshot();
 
     expect(snapshot.charge.player).toBe(3);
@@ -358,20 +427,67 @@ describe('MatchEngine', () => {
     expect(engine.getSnapshot().charge.player).toBeCloseTo(4, 5);
   });
 
-  it('casts Programs anywhere and gives EMP its disable plus exact 35% tower damage', () => {
+  it('uses the visible perspective polygon as the authoritative home deployment area', () => {
+    const engine = new MatchEngine();
+    engine.dispatch({ type: 'start' });
+
+    expect(engine.dispatch({ type: 'playCard', team: 'player', cardId: 'zip', x: 549, y: 360 })).toBe(false);
+    expect(engine.getSnapshot().charge.player).toBe(5);
+    expect(engine.dispatch({ type: 'playCard', team: 'player', cardId: 'zip', x: 550, y: 360 })).toBe(true);
+  });
+
+  it('extends deployment into only the enemy lane whose Relay was destroyed', () => {
+    const leftEngine = new MatchEngine();
+    leftEngine.dispatch({ type: 'start' });
+
+    expect(leftEngine.dispatch({ type: 'playCard', team: 'player', cardId: 'zip', x: 680, y: 220 })).toBe(false);
+    leftEngine.debugDamageTower('enemy-left', 2_000);
+    expect(leftEngine.getSnapshot().guidance).toBe('LEFT RELAY BREACHED — DEPLOYMENT EXTENDED');
+    expect(leftEngine.dispatch({ type: 'playCard', team: 'player', cardId: 'zip', x: 920, y: 220 })).toBe(false);
+    expect(leftEngine.dispatch({ type: 'playCard', team: 'player', cardId: 'zip', x: 800, y: 200 })).toBe(false);
+    expect(leftEngine.dispatch({ type: 'playCard', team: 'player', cardId: 'zip', x: 680, y: 220 })).toBe(true);
+    expect(leftEngine.getSnapshot().units.at(-1)).toMatchObject({ team: 'player', lane: 'left', x: 680, y: 220 });
+
+    const rightEngine = new MatchEngine();
+    rightEngine.dispatch({ type: 'start' });
+    rightEngine.debugDamageTower('enemy-right', 2_000);
+    expect(rightEngine.dispatch({ type: 'playCard', team: 'player', cardId: 'zip', x: 680, y: 220 })).toBe(false);
+    expect(rightEngine.dispatch({ type: 'playCard', team: 'player', cardId: 'zip', x: 920, y: 220 })).toBe(true);
+    expect(rightEngine.getSnapshot().units.at(-1)).toMatchObject({ team: 'player', lane: 'right', x: 920, y: 220 });
+
+    expect(rightEngine.dispatch({ type: 'restart' })).toBe(true);
+    expect(rightEngine.dispatch({ type: 'playCard', team: 'player', cardId: 'zip', x: 920, y: 220 })).toBe(false);
+  });
+
+  it('allows Installations in a breached lane without overlapping a live structure', () => {
+    const engine = new MatchEngine();
+    startWithDeck(engine, SENTRY_TEST_DECK);
+    engine.debugDamageTower('enemy-left', 2_000);
+
+    expect(engine.dispatch({ type: 'playCard', team: 'player', cardId: 'sentry', x: 800, y: 200 })).toBe(false);
+    expect(engine.dispatch({ type: 'playCard', team: 'player', cardId: 'sentry', x: 680, y: 220 })).toBe(true);
+    expect(engine.getSnapshot().installations.at(-1)).toMatchObject({ team: 'player', lane: 'left', x: 680, y: 220 });
+  });
+
+  it('applies the same destroyed-Relay lane restriction to enemy deployment', () => {
+    const engine = new MatchEngine();
+    engine.dispatch({ type: 'start' });
+    const enemyCard = engine
+      .getSnapshot()
+      .hands.enemy.find((cardId) => CARDS[cardId].category !== 'program')!;
+
+    expect(engine.dispatch({ type: 'playCard', team: 'enemy', cardId: enemyCard, x: 920, y: 440 })).toBe(false);
+    engine.debugDamageTower('player-right', 2_000);
+    expect(engine.dispatch({ type: 'playCard', team: 'enemy', cardId: enemyCard, x: 680, y: 440 })).toBe(false);
+    expect(engine.dispatch({ type: 'playCard', team: 'enemy', cardId: enemyCard, x: 920, y: 440 })).toBe(true);
+  });
+
+  it('casts Programs across the battlefield and gives EMP its disable plus exact 35% tower damage', () => {
     const engine = new MatchEngine();
     startWithDeck(engine, PROGRAM_TEST_DECK);
     const enemyRelay = engine.getSnapshot().towers.find((tower) => tower.id === 'enemy-left')!;
 
-    expect(
-      engine.dispatch({
-        type: 'playCard',
-        team: 'enemy',
-        cardId: 'zip',
-        x: enemyRelay.x + 100,
-        y: enemyRelay.y,
-      }),
-    ).toBe(true);
+    harness(engine).spawnUnit('enemy', 'zip', enemyRelay.x, enemyRelay.y + 100);
     expect(
       engine.dispatch({
         type: 'playCard',
@@ -403,7 +519,7 @@ describe('MatchEngine', () => {
   it('ticks Nano Cloud persistently and removes the zone at exact expiry', () => {
     const engine = new MatchEngine();
     engine.dispatch({ type: 'start' });
-    expect(engine.dispatch({ type: 'playCard', team: 'player', cardId: 'zip', x: 1_350, y: 620 })).toBe(true);
+    expect(engine.dispatch({ type: 'playCard', team: 'player', cardId: 'zip', x: 680, y: 420 })).toBe(true);
     advance(engine, 2_500);
 
     const relayBefore = engine.getSnapshot().towers.find((tower) => tower.id === 'enemy-left')!;
@@ -524,13 +640,13 @@ describe('MatchEngine', () => {
     const engine = new MatchEngine();
     startWithDeck(engine, PROGRAM_TEST_DECK);
 
-    expect(engine.dispatch({ type: 'playCard', team: 'player', cardId: 'zip', x: 1_350, y: 620 })).toBe(true);
+    expect(engine.dispatch({ type: 'playCard', team: 'player', cardId: 'zip', x: 680, y: 420 })).toBe(true);
     advance(engine, 250);
-    expect(engine.dispatch({ type: 'playCard', team: 'player', cardId: 'emp', x: 70, y: 55 })).toBe(true);
+    expect(engine.dispatch({ type: 'playCard', team: 'player', cardId: 'emp', x: 800, y: 55 })).toBe(true);
     advance(engine, 9_750);
     expect(engine.getSnapshot().charge.player).toBeCloseTo(INSTALLATIONS.foundry.cost, 5);
     expect(
-      engine.dispatch({ type: 'playCard', team: 'player', cardId: 'foundry', x: 1_350, y: 620 }),
+      engine.dispatch({ type: 'playCard', team: 'player', cardId: 'foundry', x: 920, y: 420 }),
     ).toBe(true);
 
     advance(engine, INSTALLATIONS.foundry.activationDelayMs - 50);
@@ -549,26 +665,31 @@ describe('MatchEngine', () => {
   it('keeps VECTOR-9 unique and spends two Charge on timed, cooling-down Overdrive', () => {
     const events = vi.fn();
     const engine = new MatchEngine(events);
-    engine.dispatch({ type: 'start' });
+    startWithDeck(engine, DEFAULT_PLAYER_DECK, 'turbo-grid');
 
     expect(
-      engine.dispatch({ type: 'playCard', team: 'player', cardId: 'vector', x: 1_375, y: 630 }),
+      engine.dispatch({ type: 'playCard', team: 'player', cardId: 'vector', x: 920, y: 420 }),
     ).toBe(true);
     advance(engine, 250);
     expect(
-      engine.dispatch({ type: 'playCard', team: 'player', cardId: 'vector', x: 1_300, y: 600 }),
+      engine.dispatch({ type: 'playCard', team: 'player', cardId: 'vector', x: 900, y: 400 }),
     ).toBe(false);
     expect(events).toHaveBeenCalledWith({ type: 'playRejected', team: 'player', reason: 'unique' });
     expect(
       engine.getSnapshot().units.filter((unit) => unit.team === 'player' && unit.kind === 'vector'),
     ).toHaveLength(1);
 
-    advance(engine, 4_750);
-    expect(engine.getSnapshot().charge.player).toBeCloseTo(OVERDRIVE_COST, 5);
+    expect(engine.getSnapshot().charge.player).toBeCloseTo(
+      OVERDRIVE_COST + GAME_MODES['turbo-grid'].chargeRegenPerSecond * 0.25,
+      5,
+    );
     expect(engine.getSnapshot().commander.player.available).toBe(true);
     expect(engine.dispatch({ type: 'activateOverdrive', team: 'player' })).toBe(true);
     const activated = engine.getSnapshot();
-    expect(activated.charge.player).toBeCloseTo(0, 5);
+    expect(activated.charge.player).toBeCloseTo(
+      GAME_MODES['turbo-grid'].chargeRegenPerSecond * 0.25,
+      5,
+    );
     expect(activated.commander.player).toMatchObject({
       active: true,
       remainingMs: OVERDRIVE_DURATION_MS,
@@ -592,11 +713,13 @@ describe('MatchEngine', () => {
 
     engine.debugDamageTower('enemy-left', 2_000);
     expect(engine.getSnapshot().score.player).toBe(1);
+    expect(engine.getSnapshot().battleScore.player).toBe(500);
     expect(engine.getSnapshot().phase).toBe('playing');
 
     engine.debugDamageTower('enemy-core', 3_200);
     const snapshot = engine.getSnapshot();
     expect(snapshot.phase).toBe('ended');
+    expect(snapshot.battleScore.player).toBe(3_000);
     expect(snapshot.result).toMatchObject({ winner: 'player', reason: 'core', headline: 'CORE CRASHED' });
     expect(
       engine.dispatch({ type: 'playCard', team: 'player', cardId: 'zip', x: 600, y: 530 }),
@@ -720,15 +843,10 @@ describe('MatchEngine', () => {
     const enemyRelay = engine.getSnapshot().towers.find((tower) => tower.id === 'enemy-left')!;
     engine.debugDamageTower(enemyRelay.id, enemyRelay.hp - ROBOTS.vector.damage);
 
-    expect(
-      engine.dispatch({
-        type: 'playCard',
-        team: 'player',
-        cardId: 'vector',
-        x: enemyRelay.x,
-        y: 360,
-      }),
-    ).toBe(true);
+    // This location is in both weapons' reach but outside the rear Core's range,
+    // keeping the event-order assertion focused on one Relay and one robot.
+    expect(harness(engine).spawnUnit('player', 'vector', 550, 270))
+      .toBeTruthy();
     advance(engine, 300);
 
     const projectileEvents = events.filter((event) => event.type === 'projectileFired');
@@ -790,7 +908,7 @@ describe('MatchEngine', () => {
     for (const engine of [first, second]) {
       engine.dispatch({ type: 'start' });
       engine.dispatch({ type: 'upgradeRobot', team: 'player', robotId: 'zip', stat: 'speed' });
-      engine.dispatch({ type: 'playCard', team: 'player', cardId: 'zip', x: 600, y: 530 });
+      engine.dispatch({ type: 'playCard', team: 'player', cardId: 'zip', x: 680, y: 420 });
       advance(engine, 12_000);
     }
     expect(first.getSnapshot().upgrades.player.zip.speed).toBe(1);
@@ -802,7 +920,7 @@ describe('MatchEngine', () => {
     const second = new MatchEngine(undefined, 42);
     for (const engine of [first, second]) {
       engine.dispatch({ type: 'start' });
-      engine.dispatch({ type: 'playCard', team: 'player', cardId: 'zip', x: 600, y: 530 });
+      engine.dispatch({ type: 'playCard', team: 'player', cardId: 'zip', x: 680, y: 420 });
       advance(engine, 12_000);
     }
     expect(second.getSnapshot()).toEqual(first.getSnapshot());

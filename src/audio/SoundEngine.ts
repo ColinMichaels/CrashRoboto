@@ -20,6 +20,7 @@ export class SoundEngine {
     if (event.type === 'projectileFired') {
       const friendly = event.source.team === 'player';
       if (event.projectile === 'rocket') this.tone(friendly ? 190 : 145, 0.11, 'sawtooth', 0.016);
+      else if (event.projectile === 'flame') this.tone(friendly ? 330 : 245, 0.07, 'sawtooth', 0.012);
       else this.tone(friendly ? 760 : 540, 0.045, 'square', 0.01);
     }
     if (event.type === 'robotUpgraded') {

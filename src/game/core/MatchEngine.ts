@@ -17,6 +17,7 @@ import {
   ROBOTS,
   cloneRobotUpgrades,
   createDefaultMatchConfig,
+  createDefaultTowerWeapons,
   createEmptyRobotUpgrades,
   createTowers,
   getEffectiveRobotStats,
@@ -26,6 +27,12 @@ import {
   normalizePlayerUpgrades,
   validateMatchConfig,
 } from './content';
+import {
+  hasDeploymentBreach,
+  isDeploymentPoint,
+  isProgramTargetPoint,
+} from './deployment';
+import { SCORE_AWARDS } from './progression';
 import type {
   CardId,
   CombatEntityRef,
@@ -37,6 +44,7 @@ import type {
   MatchConfig,
   MatchResult,
   MatchSnapshot,
+  ProjectileKind,
   ProgramZoneState,
   RobotKind,
   RobotCardId,
@@ -132,6 +140,7 @@ export class MatchEngine {
     enemy: GAME_MODES[DEFAULT_GAME_MODE_ID].startingCharge,
   };
   private score: Record<Team, number> = { player: 0, enemy: 0 };
+  private battleScore: Record<Team, number> = { player: 0, enemy: 0 };
   private towers = createTowers();
   private units: UnitState[] = [];
   private installations: InstallationState[] = [];
@@ -141,6 +150,7 @@ export class MatchEngine {
   private selected: CardId | null = null;
   private commanderCooldown: Record<Team, number> = { player: 0, enemy: 0 };
   private configuredPlayerUpgrades = createEmptyRobotUpgrades();
+  private configuredPlayerTowerWeapons = createDefaultTowerWeapons();
   private upgrades = createUpgradeBook();
   private result: MatchResult | null = null;
   private guidance: string | null = null;
@@ -268,6 +278,7 @@ export class MatchEngine {
       chargeOverclock: this.remainingMs <= mode.overclockThresholdMs,
       charge: { ...this.charge },
       score: { ...this.score },
+      battleScore: { ...this.battleScore },
       towers: this.towers.map((tower) => ({ ...tower })),
       units: this.units.map((unit) => ({ ...unit })),
       installations: this.installations.map((installation) => ({ ...installation })),
@@ -311,6 +322,9 @@ export class MatchEngine {
     };
     this.configuredPlayerUpgrades = normalizePlayerUpgrades(config.playerUpgrades, config.playerDeck)
       ?? createEmptyRobotUpgrades();
+    this.configuredPlayerTowerWeapons = config.playerTowerWeapons
+      ? { ...config.playerTowerWeapons }
+      : createDefaultTowerWeapons();
     this.openingDecks = createOpeningDecks(this.decks, this.seed);
   }
 
@@ -320,7 +334,8 @@ export class MatchEngine {
     this.remainingMs = mode.durationMs;
     this.charge = { player: mode.startingCharge, enemy: mode.startingCharge };
     this.score = { player: 0, enemy: 0 };
-    this.towers = createTowers(mode.relayHpMultiplier);
+    this.battleScore = { player: 0, enemy: 0 };
+    this.towers = createTowers(mode.relayHpMultiplier, this.configuredPlayerTowerWeapons);
     this.units = [];
     this.installations = [];
     this.zones = [];
@@ -346,8 +361,11 @@ export class MatchEngine {
   private getCardGuidance(cardId: CardId): string {
     const card = CARDS[cardId];
     if (card.category === 'program') return 'PROGRAMS TARGET ANYWHERE';
-    if (card.category === 'installation') return 'INSTALL ON YOUR HALF';
-    return card.category === 'commander' ? 'DEPLOY YOUR UNIQUE COMMANDER' : 'DEPLOY ON YOUR HALF';
+    const breached = hasDeploymentBreach('player', 'left', this.towers) ||
+      hasDeploymentBreach('player', 'right', this.towers);
+    const territory = breached ? 'YOUR SIDE OR BREACHED LANE' : 'YOUR SIDE';
+    if (card.category === 'installation') return `INSTALL ON ${territory}`;
+    return card.category === 'commander' ? `DEPLOY YOUR COMMANDER ON ${territory}` : `DEPLOY ON ${territory}`;
   }
 
   private reject(team: Team, reason: Extract<GameEvent, { type: 'playRejected' }>['reason']): false {
@@ -392,17 +410,16 @@ export class MatchEngine {
 
   private isValidTarget(team: Team, cardId: CardId, x: number, y: number): boolean {
     const card = CARDS[cardId];
-    if (card.category === 'program') return x >= 70 && x <= 1530 && y >= 55 && y <= 650;
+    if (card.category === 'program') return isProgramTargetPoint(x, y);
 
-    const validY = team === 'player' ? y >= 360 && y <= 630 : y >= 82 && y <= 245;
-    if (!validY || x < 225 || x > 1375) return false;
+    if (!isDeploymentPoint(team, x, y, this.towers)) return false;
     const blockedByTower = this.towers.some(
-      (tower) => tower.team === team && tower.hp > 0 && distance(tower, { x, y }) < (tower.kind === 'core' ? 112 : 88),
+      (tower) => tower.hp > 0 && distance(tower, { x, y }) < (tower.kind === 'core' ? 112 : 88),
     );
     if (blockedByTower) return false;
     if (card.category !== 'installation') return true;
     return !this.installations.some(
-      (installation) => installation.team === team && installation.hp > 0 && distance(installation, { x, y }) < 96,
+      (installation) => installation.hp > 0 && distance(installation, { x, y }) < 96,
     );
   }
 
@@ -592,8 +609,26 @@ export class MatchEngine {
         this.towerRef(tower),
         this.unitRef(target),
         tower.damage,
+        tower.splashRadius || undefined,
       );
       this.damageUnit(target, tower.damage, 'projectile', tower.team, attackId);
+      if (tower.splashRadius > 0) {
+        for (const secondary of this.units) {
+          if (
+            secondary.id === target.id ||
+            secondary.team === tower.team ||
+            secondary.hp <= 0 ||
+            distance(secondary, target) > tower.splashRadius
+          ) continue;
+          this.damageUnit(
+            secondary,
+            tower.damage * tower.splashMultiplier,
+            'projectile',
+            tower.team,
+            attackId,
+          );
+        }
+      }
       tower.cooldown = tower.attackInterval;
     }
   }
@@ -744,7 +779,7 @@ export class MatchEngine {
   }
 
   private fireProjectile(
-    projectile: 'bullet' | 'rocket',
+    projectile: ProjectileKind,
     source: CombatEntityRef,
     target: CombatEntityRef,
     amount: number,
@@ -765,6 +800,7 @@ export class MatchEngine {
     if (target.hp <= 0 || amount <= 0) return;
     target.hp = Math.max(0, target.hp - amount);
     if (target.hp === 0) {
+      if (byTeam && byTeam !== target.team) this.battleScore[byTeam] += SCORE_AWARDS.unit;
       this.emit({ type: 'entityDestroyed', entity: this.unitRef(target), cause, byTeam, attackId });
     }
   }
@@ -779,6 +815,7 @@ export class MatchEngine {
     if (target.hp <= 0 || amount <= 0) return;
     target.hp = Math.max(0, target.hp - amount);
     if (target.hp === 0) {
+      if (byTeam && byTeam !== target.team) this.battleScore[byTeam] += SCORE_AWARDS.installation;
       this.emit({ type: 'entityDestroyed', entity: this.installationRef(target), cause, byTeam, attackId });
     }
   }
@@ -793,6 +830,9 @@ export class MatchEngine {
     if (target.hp <= 0 || amount <= 0) return;
     target.hp = Math.max(0, target.hp - amount);
     if (target.hp === 0) {
+      if (byTeam && byTeam !== target.team) {
+        this.battleScore[byTeam] += target.kind === 'core' ? SCORE_AWARDS.core : SCORE_AWARDS.relay;
+      }
       this.emit({ type: 'entityDestroyed', entity: this.towerRef(target), cause, byTeam, attackId });
       this.onTowerDestroyed(target);
     }
@@ -927,7 +967,10 @@ export class MatchEngine {
         });
         return;
       }
-      this.guidance = tower.team === 'enemy' ? 'RELAY BREACHED — CORE EXPOSED' : 'RELAY OFFLINE';
+      const lane = tower.lane.toUpperCase();
+      this.guidance = tower.team === 'enemy'
+        ? `${lane} RELAY BREACHED — DEPLOYMENT EXTENDED`
+        : `${lane} RELAY OFFLINE — ENEMY DEPLOYMENT EXTENDED`;
       this.guidanceMs = 2_800;
       return;
     }
@@ -969,6 +1012,7 @@ export class MatchEngine {
 
   private endMatch(result: MatchResult): void {
     if (this.phase === 'ended') return;
+    if (result.winner !== 'draw') this.battleScore[result.winner] += SCORE_AWARDS.victory;
     this.phase = 'ended';
     this.result = result;
     this.selected = null;
@@ -1013,8 +1057,11 @@ export class MatchEngine {
       this.tryPlayCard('enemy', cardId, target.x, target.y);
       return;
     }
-    const y = card.category === 'installation' ? 208 : 215;
-    const inwardOffset = lane === 'left' ? 120 : -120;
+    const breachedLane = hasDeploymentBreach('enemy', lane, this.towers);
+    const y = breachedLane
+      ? card.category === 'installation' ? 430 : 445
+      : card.category === 'installation' ? 208 : 215;
+    const inwardOffset = lane === 'left' ? 45 : -45;
     const x = getLaneX(lane, y) + inwardOffset + (this.random.next() - 0.5) * 46;
     this.tryPlayCard('enemy', cardId, x, y);
 

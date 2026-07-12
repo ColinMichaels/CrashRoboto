@@ -1,21 +1,37 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SoundEngine } from '../audio/SoundEngine';
 import { GameBridge } from '../game/bridge/GameBridge';
-import type { CardId, GameCommand, GameModeId, RobotCardId, UpgradeStat } from '../game/core/types';
+import type {
+  CardId,
+  GameCommand,
+  GameModeId,
+  Lane,
+  RobotCardId,
+  TowerWeaponId,
+  UpgradeStat,
+} from '../game/core/types';
 import type { PilotId } from '../game/core/pilots';
 import { GameOverlay } from '../features/hud/GameOverlay';
 import { Hud } from '../features/hud/Hud';
 import { useGameSnapshot } from '../features/hud/useGameSnapshot';
 import { Lobby } from '../features/lobby/Lobby';
 import {
+  BOARD_HEIGHT,
+  BOARD_WIDTH,
   CARDS,
   cloneRobotUpgrades,
   DECK_SIZE,
-  LOBBY_FIRMWARE_BUDGET,
   ROBOT_CARD_IDS,
 } from '../game/core/content';
+import {
+  getFirmwareBudgetForLevel,
+  getMatchProgressAward,
+  getPlayerLevel,
+  type MatchProgressAward,
+} from '../game/core/progression';
 import { readStorageItem, writeStorageItem } from './browserStorage';
 import { readLobbyLoadout, resetLobbyLoadout, saveLobbyLoadout } from './loadoutStorage';
+import { readPlayerProgress, savePlayerProgress } from './playerProgressStorage';
 
 const GameCanvas = lazy(() => import('./GameCanvas').then((module) => ({ default: module.GameCanvas })));
 const MUTE_STORAGE_KEY = 'crash-roboto-muted';
@@ -37,7 +53,10 @@ export function App() {
   const labTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [muted, setMuted] = useState(() => readStorageItem(MUTE_STORAGE_KEY) === 'true');
   const [inspectedRobot, setInspectedRobot] = useState<RobotCardId | null>(null);
+  const [playerProgress, setPlayerProgress] = useState(readPlayerProgress);
+  const [lastProgressAward, setLastProgressAward] = useState<MatchProgressAward | null>(null);
   const [lobbyLoadout, setLobbyLoadout] = useState(readLobbyLoadout);
+  const awardedMatchRevisionRef = useRef(-1);
   const snapshotRef = useRef(snapshot);
   const inspectedRobotRef = useRef(inspectedRobot);
   const firmwareSpent = useMemo(
@@ -47,7 +66,9 @@ export function App() {
     }, 0),
     [lobbyLoadout.upgrades],
   );
-  const firmwareRemaining = LOBBY_FIRMWARE_BUDGET - firmwareSpent;
+  const playerLevel = getPlayerLevel(playerProgress.xp);
+  const firmwareBudget = getFirmwareBudgetForLevel(playerLevel);
+  const firmwareRemaining = Math.max(0, firmwareBudget - firmwareSpent);
 
   snapshotRef.current = snapshot;
   inspectedRobotRef.current = inspectedRobot;
@@ -71,6 +92,14 @@ export function App() {
   const selectPilot = useCallback((pilotId: PilotId) => {
     sound.blip();
     setLobbyLoadout((current) => ({ ...current, pilotId }));
+  }, [sound]);
+
+  const selectTowerWeapon = useCallback((lane: Lane, weaponId: TowerWeaponId) => {
+    sound.blip();
+    setLobbyLoadout((current) => ({
+      ...current,
+      towerWeapons: { ...current.towerWeapons, [lane]: weaponId },
+    }));
   }, [sound]);
 
   const toggleLobbyCard = useCallback((cardId: CardId) => {
@@ -111,7 +140,7 @@ export function App() {
         const state = current.upgrades[id];
         return total + state.output + state.range + state.speed;
       }, 0);
-      if ((change > 0 && (currentTier >= 2 || spent >= LOBBY_FIRMWARE_BUDGET)) || (change < 0 && currentTier <= 0)) {
+      if ((change > 0 && (currentTier >= 2 || spent >= firmwareBudget)) || (change < 0 && currentTier <= 0)) {
         return current;
       }
       const upgrades = cloneRobotUpgrades(current.upgrades);
@@ -119,7 +148,7 @@ export function App() {
       return { ...current, upgrades };
     });
     sound.blip();
-  }, [sound]);
+  }, [firmwareBudget, sound]);
 
   const resetLoadout = useCallback(() => {
     sound.blip();
@@ -136,9 +165,11 @@ export function App() {
         modeId: lobbyLoadout.modeId,
         playerDeck: [...lobbyLoadout.deck],
         playerUpgrades: lobbyLoadout.upgrades,
+        playerTowerWeapons: lobbyLoadout.towerWeapons,
+        playerFirmwareBudget: firmwareBudget,
       },
     });
-  }, [dispatch, lobbyLoadout, sound]);
+  }, [dispatch, firmwareBudget, lobbyLoadout, sound]);
 
   const returnToLobby = useCallback(() => {
     dragOriginRef.current = null;
@@ -171,14 +202,16 @@ export function App() {
   }, []);
 
   const playDraggedCard = useCallback((cardId: CardId, clientX: number, clientY: number) => {
-    const bounds = frameRef.current?.getBoundingClientRect();
+    const bounds = frameRef.current
+      ?.querySelector<HTMLElement>('.game-canvas')
+      ?.getBoundingClientRect();
     if (!bounds) return;
     dispatch({
       type: 'playCard',
       team: 'player',
       cardId,
-      x: ((clientX - bounds.left) / bounds.width) * 1600,
-      y: ((clientY - bounds.top) / bounds.height) * 900,
+      x: ((clientX - bounds.left) / bounds.width) * BOARD_WIDTH,
+      y: ((clientY - bounds.top) / bounds.height) * BOARD_HEIGHT,
     });
   }, [dispatch]);
 
@@ -195,6 +228,22 @@ export function App() {
   }, [muted, sound]);
   useEffect(() => bridge.subscribeToEvents((event) => sound.playEvent(event)), [bridge, sound]);
   useEffect(() => saveLobbyLoadout(lobbyLoadout), [lobbyLoadout]);
+  useEffect(() => {
+    if (
+      snapshot.phase !== 'ended' ||
+      !snapshot.result ||
+      awardedMatchRevisionRef.current === snapshot.revision
+    ) return;
+    awardedMatchRevisionRef.current = snapshot.revision;
+    const award = getMatchProgressAward(snapshot.battleScore, snapshot.result);
+    const nextProgress = {
+      xp: playerProgress.xp + award.xp,
+      matches: playerProgress.matches + 1,
+    };
+    savePlayerProgress(nextProgress);
+    setPlayerProgress(nextProgress);
+    setLastProgressAward(award);
+  }, [playerProgress.matches, playerProgress.xp, snapshot.battleScore, snapshot.phase, snapshot.result, snapshot.revision]);
 
   useEffect(() => {
     const onPointerUp = (event: PointerEvent) => finishDrag(event.clientX, event.clientY);
@@ -262,9 +311,14 @@ export function App() {
             selectedDeck={lobbyLoadout.deck}
             selectedPilot={lobbyLoadout.pilotId}
             upgrades={lobbyLoadout.upgrades}
+            towerWeapons={lobbyLoadout.towerWeapons}
             firmwareRemaining={firmwareRemaining}
+            firmwareBudget={firmwareBudget}
+            playerLevel={playerLevel}
+            playerXp={playerProgress.xp}
             onSelectMode={selectMode}
             onSelectPilot={selectPilot}
+            onSelectTowerWeapon={selectTowerWeapon}
             onToggleCard={toggleLobbyCard}
             onRemoveCard={removeLobbyCard}
             onUpgradeRobot={(robotId, stat) => adjustLobbyUpgrade(robotId, stat, 1)}
@@ -301,6 +355,7 @@ export function App() {
               onRestart={restartMatch}
               onResume={togglePause}
               onReturnToLobby={returnToLobby}
+              progressAward={lastProgressAward}
             />
           </>
         )}

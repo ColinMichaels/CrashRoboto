@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CardId } from '../game/core/types';
 import { readStorageItem, writeStorageItem } from './browserStorage';
 import { readLobbyLoadout, saveLobbyLoadout } from './loadoutStorage';
+import { readPlayerProgress, savePlayerProgress } from './playerProgressStorage';
 
 function createMemoryStorage(): Storage {
   const entries = new Map<string, string>();
@@ -58,6 +59,19 @@ describe('browser storage', () => {
 });
 
 describe('lobby loadout persistence', () => {
+  it('persists independent left and right Relay weapon packages', () => {
+    const storage = createMemoryStorage();
+    vi.stubGlobal('localStorage', storage);
+    const defaults = readLobbyLoadout();
+
+    saveLobbyLoadout({
+      ...defaults,
+      towerWeapons: { left: 'rocket', right: 'flame' },
+    });
+
+    expect(readLobbyLoadout().towerWeapons).toEqual({ left: 'rocket', right: 'flame' });
+  });
+
   it('saves a mode change from an incomplete draft without replacing the last valid deck', () => {
     const storage = createMemoryStorage();
     vi.stubGlobal('localStorage', storage);
@@ -80,5 +94,16 @@ describe('lobby loadout persistence', () => {
       modeId: 'relay-rush',
       deck: lastValidDeck,
     });
+  });
+});
+
+describe('player progression persistence', () => {
+  it('stores completed matches and total experience independently of the loadout', () => {
+    const storage = createMemoryStorage();
+    vi.stubGlobal('localStorage', storage);
+
+    savePlayerProgress({ xp: 725.9, matches: 4.8 });
+
+    expect(readPlayerProgress()).toEqual({ xp: 725, matches: 4 });
   });
 });

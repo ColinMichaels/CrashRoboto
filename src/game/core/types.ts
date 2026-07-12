@@ -6,9 +6,11 @@ export type GameModeId = 'core-siege' | 'turbo-grid' | 'relay-rush';
 export type TechClass = 'standard' | 'advanced' | 'prototype' | 'exotic' | 'commander';
 export type CardCategory = 'unit' | 'program' | 'installation' | 'commander';
 export type TargetingType = 'any' | 'ground' | 'structures' | 'support';
-export type ProjectileKind = 'bullet' | 'rocket';
+export type ProjectileKind = 'bullet' | 'rocket' | 'flame';
 export type UpgradeStat = 'output' | 'range' | 'speed';
 export type UpgradeTier = 0 | 1 | 2;
+export type TowerWeaponId = 'gun' | 'rocket' | 'flame';
+export type TowerWeaponLoadout = Record<Lane, TowerWeaponId>;
 
 export type RobotCardId =
   | 'zip'
@@ -46,6 +48,23 @@ export interface MatchConfig {
   modeId: GameModeId;
   playerDeck: CardId[];
   playerUpgrades?: PlayerUpgradeConfig;
+  playerTowerWeapons?: TowerWeaponLoadout;
+  playerFirmwareBudget?: number;
+}
+
+export interface TowerWeaponDefinition {
+  id: TowerWeaponId;
+  name: string;
+  shortName: string;
+  description: string;
+  damage: number;
+  range: number;
+  attackInterval: number;
+  projectile: ProjectileKind;
+  splashRadius: number;
+  splashMultiplier: number;
+  frame: number;
+  accent: string;
 }
 
 export interface BaseCardDefinition {
@@ -174,6 +193,9 @@ export interface TowerState {
   range: number;
   attackInterval: number;
   projectile: ProjectileKind;
+  weapon: TowerWeaponId;
+  splashRadius: number;
+  splashMultiplier: number;
 }
 
 export interface RobotUpgradeState {
@@ -220,6 +242,7 @@ export interface MatchSnapshot {
   chargeOverclock: boolean;
   charge: Record<Team, number>;
   score: Record<Team, number>;
+  battleScore: Record<Team, number>;
   towers: TowerState[];
   units: UnitState[];
   installations: InstallationState[];
