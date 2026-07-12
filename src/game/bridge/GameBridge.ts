@@ -44,7 +44,10 @@ export class GameBridge {
   }
 
   tick(deltaMs: number): void {
-    if (this.disposed) return;
+    if (this.disposed || this.snapshot.phase !== 'playing') {
+      this.accumulator = 0;
+      return;
+    }
     this.accumulator += Math.min(Math.max(deltaMs, 0), 250);
     let stepped = false;
     while (this.accumulator >= FIXED_STEP_MS) {

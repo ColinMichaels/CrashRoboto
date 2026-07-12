@@ -12,6 +12,10 @@ import {
   ARENA_UNIT_GAIT_FPS,
   ARENA_UNIT_GAIT_SEQUENCE,
   ARENA_UNIT_KINDS,
+  VAULT_UNIT_ATLAS_FRAME_COUNT,
+  VAULT_UNIT_ATLAS_FRAME_HEIGHT,
+  VAULT_UNIT_ATLAS_FRAME_WIDTH,
+  VAULT_UNIT_ATLAS_KEY,
   UNIT_MOVEMENT_GRACE_MS,
   getArenaUnitBodyOriginY,
   getArenaUnitFrame,
@@ -19,6 +23,7 @@ import {
   getArenaUnitGaitFrame,
   getArenaUnitGaitPhase,
   getArenaUnitGaitStartDelayMs,
+  getArenaUnitTextureKey,
   resolveUnitPose,
   selectArenaUnitDirection,
   selectArenaUnitFlipX,
@@ -48,6 +53,9 @@ const basePoseInput: ResolveUnitPoseInput = {
 describe('unit presentation', () => {
   it('maps every robot and direction to two key poses plus a transition frame', () => {
     expect(ARENA_UNIT_ATLAS_FRAME_SIZE).toBe(170);
+    expect(VAULT_UNIT_ATLAS_FRAME_WIDTH).toBe(256);
+    expect(VAULT_UNIT_ATLAS_FRAME_HEIGHT).toBe(341);
+    expect(VAULT_UNIT_ATLAS_FRAME_COUNT).toBe(18);
     expect(ARENA_UNIT_GAIT_FRAME_COUNT).toBe(3);
     expect(ARENA_UNIT_GAIT_SEQUENCE).toEqual([0, 2, 1, 2]);
     expect(new Set(ARENA_UNIT_GAIT_SEQUENCE).size).toBe(ARENA_UNIT_GAIT_FRAME_COUNT);
@@ -76,6 +84,13 @@ describe('unit presentation', () => {
     expect(getArenaUnitFrames('zip', 'toward')).toEqual([3, 4, 5]);
     expect(getArenaUnitFrames('vector', 'away')).toEqual([48, 49, 50]);
     expect(getArenaUnitFrames('vector', 'toward')).toEqual([51, 52, 53]);
+    expect(getArenaUnitFrames('aegis', 'away')).toEqual([0, 1, 2]);
+    expect(getArenaUnitFrames('wraith', 'toward')).toEqual([9, 10, 11]);
+    expect(getArenaUnitFrames('viper', 'away')).toEqual([12, 13, 14]);
+    expect(getArenaUnitTextureKey('aegis')).toBe(VAULT_UNIT_ATLAS_KEY);
+    expect(getArenaUnitTextureKey('wraith')).toBe(VAULT_UNIT_ATLAS_KEY);
+    expect(getArenaUnitTextureKey('viper')).toBe(VAULT_UNIT_ATLAS_KEY);
+    expect(getArenaUnitTextureKey('zip')).toBe('arena-robot-move-sprites');
     expect(getArenaUnitFrames('microbot', 'away')).toEqual(getArenaUnitFrames('swarm', 'away'));
     expect(ARENA_UNIT_ATLAS_ROW.microbot).toBe(ARENA_UNIT_ATLAS_ROW.swarm);
   });

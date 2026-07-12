@@ -15,27 +15,32 @@ import { GameOverlay } from '../features/hud/GameOverlay';
 import { Hud } from '../features/hud/Hud';
 import { useGameSnapshot } from '../features/hud/useGameSnapshot';
 import { Lobby } from '../features/lobby/Lobby';
+import { useMatchRewards } from '../features/progression/useMatchRewards';
 import { TutorialCoach, type TutorialStep } from '../features/tutorial/TutorialCoach';
 import {
   BOARD_HEIGHT,
   BOARD_WIDTH,
   CARDS,
   cloneRobotUpgrades,
+  DEFAULT_PLAYER_DECK,
   DECK_SIZE,
   ROBOT_CARD_IDS,
 } from '../game/core/content';
 import {
+  getCollectionCardLevels,
+  isCardUnlocked,
+} from '../game/core/collection';
+import {
   getFirmwareBudgetForLevel,
-  getMatchProgressAward,
   getPlayerLevel,
-  type MatchProgressAward,
 } from '../game/core/progression';
 import { DECK_PRESETS, type DeckPresetId } from '../game/core/deckGuidance';
 import { readStorageItem, writeStorageItem } from './browserStorage';
 import { readLobbyLoadout, resetLobbyLoadout, saveLobbyLoadout } from './loadoutStorage';
-import { readPlayerProgress, savePlayerProgress } from './playerProgressStorage';
 
-const GameCanvas = lazy(() => import('./GameCanvas').then((module) => ({ default: module.GameCanvas })));
+const loadGameCanvas = () => import('./GameCanvas');
+const GameCanvas = lazy(() => loadGameCanvas().then((module) => ({ default: module.GameCanvas })));
+const prepareArena = () => { void loadGameCanvas(); };
 const MUTE_STORAGE_KEY = 'crash-roboto-muted';
 const TUTORIAL_STORAGE_KEY = 'crash-roboto-tutorial-complete';
 
@@ -56,12 +61,16 @@ export function App() {
   const labTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [muted, setMuted] = useState(() => readStorageItem(MUTE_STORAGE_KEY) === 'true');
   const [inspectedRobot, setInspectedRobot] = useState<RobotCardId | null>(null);
-  const [playerProgress, setPlayerProgress] = useState(readPlayerProgress);
-  const [lastProgressAward, setLastProgressAward] = useState<MatchProgressAward | null>(null);
+  const {
+    playerProgress,
+    cardCollection,
+    lastProgressAward,
+    lastCacheReward,
+    clearMatchRewards,
+  } = useMatchRewards(snapshot);
   const [tutorialStep, setTutorialStep] = useState<TutorialStep | null>(null);
   const [tutorialCompleted, setTutorialCompleted] = useState(() => readStorageItem(TUTORIAL_STORAGE_KEY) === 'true');
   const [lobbyLoadout, setLobbyLoadout] = useState(readLobbyLoadout);
-  const awardedMatchRevisionRef = useRef(-1);
   const tutorialFirmwareBaselineRef = useRef(0);
   const snapshotRef = useRef(snapshot);
   const inspectedRobotRef = useRef(inspectedRobot);
@@ -109,6 +118,7 @@ export function App() {
   }, [sound]);
 
   const toggleLobbyCard = useCallback((cardId: CardId) => {
+    if (!isCardUnlocked(cardCollection, cardId)) return;
     sound.blip();
     setLobbyLoadout((current) => {
       if (current.deck.includes(cardId)) {
@@ -121,7 +131,7 @@ export function App() {
       if (current.deck.length >= DECK_SIZE) return current;
       return { ...current, deck: [...current.deck, cardId] };
     });
-  }, [sound]);
+  }, [cardCollection, sound]);
 
   const removeLobbyCard = useCallback((cardId: CardId) => {
     sound.blip();
@@ -141,14 +151,15 @@ export function App() {
   const applyDeckPreset = useCallback((presetId: DeckPresetId) => {
     sound.blip();
     setLobbyLoadout((current) => {
-      const deck = [...DECK_PRESETS[presetId].deck];
+      const deck = DECK_PRESETS[presetId].deck.filter((cardId) => isCardUnlocked(cardCollection, cardId));
+      if (deck.length !== DECK_SIZE) return current;
       const upgrades = cloneRobotUpgrades(current.upgrades);
       for (const robotId of ROBOT_CARD_IDS) {
         if (!deck.includes(robotId)) upgrades[robotId] = { output: 0, range: 0, speed: 0 };
       }
       return { ...current, deck, upgrades };
     });
-  }, [sound]);
+  }, [cardCollection, sound]);
 
   const adjustLobbyUpgrade = useCallback((robotId: RobotCardId, stat: UpgradeStat, change: -1 | 1) => {
     setLobbyLoadout((current) => {
@@ -174,8 +185,12 @@ export function App() {
   }, [sound]);
 
   const launchMatch = useCallback(() => {
-    if (lobbyLoadout.deck.length !== DECK_SIZE) return;
+    if (
+      lobbyLoadout.deck.length !== DECK_SIZE ||
+      lobbyLoadout.deck.some((cardId) => !isCardUnlocked(cardCollection, cardId))
+    ) return;
     saveLobbyLoadout(lobbyLoadout);
+    clearMatchRewards();
     sound.blip();
     dispatch({
       type: 'start',
@@ -183,12 +198,13 @@ export function App() {
         modeId: lobbyLoadout.modeId,
         playerDeck: [...lobbyLoadout.deck],
         playerUpgrades: lobbyLoadout.upgrades,
+        playerCardLevels: getCollectionCardLevels(cardCollection),
         playerTowerWeapons: lobbyLoadout.towerWeapons,
         playerFirmwareBudget: firmwareBudget,
       },
     });
     if (tutorialStep === 'launch') setTutorialStep('select');
-  }, [dispatch, firmwareBudget, lobbyLoadout, sound, tutorialStep]);
+  }, [cardCollection, clearMatchRewards, dispatch, firmwareBudget, lobbyLoadout, sound, tutorialStep]);
 
   const startTutorial = useCallback(() => {
     tutorialFirmwareBaselineRef.current = firmwareSpent;
@@ -205,14 +221,16 @@ export function App() {
   const returnToLobby = useCallback(() => {
     dragOriginRef.current = null;
     setInspectedRobot(null);
+    clearMatchRewards();
     dispatch({ type: 'returnToLobby' });
-  }, [dispatch]);
+  }, [clearMatchRewards, dispatch]);
 
   const restartMatch = useCallback(() => {
     dragOriginRef.current = null;
     setInspectedRobot(null);
+    clearMatchRewards();
     dispatch({ type: 'restart' });
-  }, [dispatch]);
+  }, [clearMatchRewards, dispatch]);
 
   const togglePause = useCallback(() => {
     dragOriginRef.current = null;
@@ -260,21 +278,20 @@ export function App() {
   useEffect(() => bridge.subscribeToEvents((event) => sound.playEvent(event)), [bridge, sound]);
   useEffect(() => saveLobbyLoadout(lobbyLoadout), [lobbyLoadout]);
   useEffect(() => {
-    if (
-      snapshot.phase !== 'ended' ||
-      !snapshot.result ||
-      awardedMatchRevisionRef.current === snapshot.revision
-    ) return;
-    awardedMatchRevisionRef.current = snapshot.revision;
-    const award = getMatchProgressAward(snapshot.battleScore, snapshot.result);
-    const nextProgress = {
-      xp: playerProgress.xp + award.xp,
-      matches: playerProgress.matches + 1,
-    };
-    savePlayerProgress(nextProgress);
-    setPlayerProgress(nextProgress);
-    setLastProgressAward(award);
-  }, [playerProgress.matches, playerProgress.xp, snapshot.battleScore, snapshot.phase, snapshot.result, snapshot.revision]);
+    setLobbyLoadout((current) => {
+      const unlockedDeck = current.deck.filter((cardId) => isCardUnlocked(cardCollection, cardId));
+      if (unlockedDeck.length === current.deck.length) return current;
+      for (const cardId of DEFAULT_PLAYER_DECK) {
+        if (unlockedDeck.length >= DECK_SIZE) break;
+        if (!unlockedDeck.includes(cardId) && isCardUnlocked(cardCollection, cardId)) unlockedDeck.push(cardId);
+      }
+      const upgrades = cloneRobotUpgrades(current.upgrades);
+      for (const robotId of ROBOT_CARD_IDS) {
+        if (!unlockedDeck.includes(robotId)) upgrades[robotId] = { output: 0, range: 0, speed: 0 };
+      }
+      return { ...current, deck: unlockedDeck, upgrades };
+    });
+  }, [cardCollection]);
   useEffect(() => {
     if (tutorialStep === 'firmware' && firmwareSpent > tutorialFirmwareBaselineRef.current) {
       setTutorialStep('launch');
@@ -338,7 +355,6 @@ export function App() {
     };
     return () => { delete window.__CRASH_ROBOTO__; };
   }, [bridge]);
-
   useEffect(() => () => {
     bridge.dispose();
     sound.dispose();
@@ -363,6 +379,7 @@ export function App() {
             firmwareBudget={firmwareBudget}
             playerLevel={playerLevel}
             playerXp={playerProgress.xp}
+            collection={cardCollection}
             onSelectMode={selectMode}
             onSelectPilot={selectPilot}
             onSelectTowerWeapon={selectTowerWeapon}
@@ -374,6 +391,7 @@ export function App() {
             onStartTutorial={startTutorial}
             tutorialCompleted={tutorialCompleted}
             onReset={resetLoadout}
+            onPrepareLaunch={prepareArena}
             onLaunch={launchMatch}
             muted={muted}
             onToggleMute={toggleMute}
@@ -406,6 +424,7 @@ export function App() {
               onResume={togglePause}
               onReturnToLobby={returnToLobby}
               progressAward={lastProgressAward}
+              cacheReward={lastCacheReward}
             />
           </>
         )}

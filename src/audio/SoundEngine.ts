@@ -14,8 +14,9 @@ export class SoundEngine {
   playEvent(event: GameEvent) {
     if (this.muted) return;
     if (event.type === 'cardPlayed') this.tone(event.team === 'player' ? 320 : 220, 0.08, 'square', 0.035);
-    if (event.type === 'programCast') this.tone(event.kind === 'emp' ? 680 : 430, 0.16, 'sawtooth', 0.035);
-    if (event.type === 'installationPlaced') this.tone(180, 0.14, 'square', 0.035);
+    if (event.type === 'programCast') this.tone(event.kind === 'emp' ? 680 : event.kind === 'gravity' ? 210 : 430, 0.16, 'sawtooth', 0.035);
+    if (event.type === 'installationPlaced') this.tone(event.kind === 'firewall' ? 260 : 180, 0.14, 'square', 0.035);
+    if (event.type === 'unitDashed') this.tone(820, 0.09, 'triangle', 0.03);
     if (event.type === 'overdriveActivated') this.tone(760, 0.24, 'triangle', 0.045);
     if (event.type === 'projectileFired') {
       const friendly = event.source.team === 'player';

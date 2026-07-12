@@ -5,6 +5,10 @@ export const ARENA_UNIT_ATLAS_COLUMNS = 6;
 export const ARENA_UNIT_ATLAS_ROWS = 9;
 export const ARENA_UNIT_ATLAS_FRAME_SIZE = 170;
 export const ARENA_UNIT_ATLAS_FRAME_COUNT = ARENA_UNIT_ATLAS_COLUMNS * ARENA_UNIT_ATLAS_ROWS;
+export const VAULT_UNIT_ATLAS_KEY = 'vault-unit-sprites';
+export const VAULT_UNIT_ATLAS_FRAME_WIDTH = 256;
+export const VAULT_UNIT_ATLAS_FRAME_HEIGHT = 341;
+export const VAULT_UNIT_ATLAS_FRAME_COUNT = 18;
 
 export const UNIT_MOVEMENT_GRACE_MS = 130;
 export const UNIT_MOVEMENT_EPSILON = 0.01;
@@ -33,8 +37,19 @@ export const ARENA_UNIT_KINDS: readonly RobotKind[] = [
   'drone',
   'patch',
   'vector',
+  'aegis',
+  'wraith',
+  'viper',
   'microbot',
 ] as const;
+
+export const VAULT_UNIT_KINDS = ['aegis', 'wraith', 'viper'] as const;
+
+export function getArenaUnitTextureKey(kind: RobotKind): string {
+  return (VAULT_UNIT_KINDS as readonly RobotKind[]).includes(kind)
+    ? VAULT_UNIT_ATLAS_KEY
+    : ARENA_UNIT_ATLAS_KEY;
+}
 
 /**
  * The arena atlas has one row per deck robot. Foundry Microbots intentionally
@@ -50,6 +65,9 @@ export const ARENA_UNIT_ATLAS_ROW: Readonly<Record<RobotKind, number>> = {
   drone: 6,
   patch: 7,
   vector: 8,
+  aegis: 0,
+  wraith: 1,
+  viper: 2,
   microbot: 1,
 };
 
@@ -75,6 +93,9 @@ export const ARENA_UNIT_GAIT_FPS: Readonly<Record<RobotKind, number>> = {
   drone: 18,
   patch: 14,
   vector: 14,
+  aegis: 10,
+  wraith: 20,
+  viper: 18,
   microbot: 22,
 };
 
@@ -93,6 +114,9 @@ export const ARENA_UNIT_BODY_HEIGHT_RATIO: Readonly<Record<RobotKind, number>> =
   drone: 0.24,
   patch: 0.27,
   vector: 0.36,
+  aegis: 0.36,
+  wraith: 0.24,
+  viper: 0.23,
   microbot: 0.25,
 };
 
@@ -107,6 +131,9 @@ export const ARENA_UNIT_DISPLAY_HEIGHT_RATIO: Readonly<Record<RobotKind, number>
   drone: 0.82,
   patch: 0.9,
   vector: 0.9,
+  aegis: 0.9,
+  wraith: 0.82,
+  viper: 0.82,
   microbot: 0.82,
 };
 

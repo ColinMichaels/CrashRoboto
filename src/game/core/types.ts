@@ -22,13 +22,21 @@ export type RobotCardId =
   | 'arc'
   | 'drone'
   | 'patch'
-  | 'vector';
+  | 'vector'
+  | 'aegis'
+  | 'wraith'
+  | 'viper';
 
 export type RobotKind = RobotCardId | 'microbot';
-export type ProgramKind = 'emp' | 'nano';
-export type InstallationKind = 'sentry' | 'foundry';
+export type ProgramKind = 'emp' | 'nano' | 'gravity';
+export type InstallationKind = 'sentry' | 'foundry' | 'firewall';
 export type CardId = RobotCardId | ProgramKind | InstallationKind;
-export type SpriteSheet = 'robot' | 'system';
+export type SpriteSheet = 'robot' | 'system' | 'vault';
+
+export type CardLevel = 1 | 2 | 3 | 4 | 5;
+export type CardLevelMap = Record<CardId, CardLevel>;
+export type CardLevelBook = Record<Team, CardLevelMap>;
+export type PlayerCardLevelConfig = Partial<Record<CardId, CardLevel>>;
 
 export type PlayerUpgradeConfig = Partial<Record<RobotCardId, Partial<RobotUpgradeState>>>;
 
@@ -48,6 +56,7 @@ export interface GameModeDefinition {
 export interface MatchConfig {
   modeId: GameModeId;
   playerDeck: CardId[];
+  playerCardLevels?: PlayerCardLevelConfig;
   playerUpgrades?: PlayerUpgradeConfig;
   playerTowerWeapons?: TowerWeaponLoadout;
   playerFirmwareBudget?: number;
@@ -78,6 +87,8 @@ export interface BaseCardDefinition {
   techClass: TechClass;
   sheet: SpriteSheet;
   frame: number;
+  abilityName?: string;
+  abilityDescription?: string;
 }
 
 export interface RobotDefinition {
@@ -103,6 +114,11 @@ export interface RobotDefinition {
   structurePreferred?: boolean;
   splashRadius?: number;
   heal?: number;
+  maxShieldHp?: number;
+  dashDistance?: number;
+  abilityCooldownMs?: number;
+  initialAbilityCooldownMs?: number;
+  lifesteal?: number;
   commander?: boolean;
   projectile: ProjectileKind;
   abilityName: string;
@@ -118,6 +134,9 @@ export interface ProgramDefinition extends BaseCardDefinition {
   durationMs: number;
   tickIntervalMs: number;
   disableMs?: number;
+  pullDistance?: number;
+  slowMultiplier?: number;
+  slowMs?: number;
 }
 
 export interface InstallationDefinition extends BaseCardDefinition {
@@ -132,6 +151,8 @@ export interface InstallationDefinition extends BaseCardDefinition {
   spawnIntervalMs?: number;
   activationDelayMs: number;
   projectile?: ProjectileKind;
+  auraRadius?: number;
+  damageReduction?: number;
 }
 
 export type CardDefinition = RobotDefinition | ProgramDefinition | InstallationDefinition;
@@ -145,10 +166,14 @@ export interface UnitState {
   y: number;
   hp: number;
   maxHp: number;
+  shieldHp: number;
+  maxShieldHp: number;
   cooldown: number;
   radius: number;
   facing: number;
   disabledMs: number;
+  slowMs: number;
+  abilityCooldownMs: number;
   overdriveMs: number;
 }
 
@@ -254,6 +279,7 @@ export interface MatchSnapshot {
   selected: CardId | null;
   commander: Record<Team, CommanderAbilityState>;
   upgrades: RobotUpgradeBook;
+  cardLevels: CardLevelBook;
   result: MatchResult | null;
   guidance: string | null;
   revision: number;
@@ -274,6 +300,16 @@ export type GameEvent =
   | { type: 'playRejected'; team: Team; reason: 'phase' | 'charge' | 'hand' | 'zone' | 'unique' | 'disabled' | 'cooldown' }
   | { type: 'programCast'; team: Team; kind: ProgramKind; x: number; y: number; radius: number }
   | { type: 'installationPlaced'; team: Team; kind: InstallationKind; x: number; y: number }
+  | {
+      type: 'unitDashed';
+      unitId: string;
+      team: Team;
+      kind: 'wraith';
+      fromX: number;
+      fromY: number;
+      toX: number;
+      toY: number;
+    }
   | { type: 'overdriveActivated'; team: Team; x: number; y: number }
   | { type: 'robotUpgraded'; team: Team; robotId: RobotCardId; stat: UpgradeStat; tier: 1 | 2; cost: number }
   | { type: 'upgradeRejected'; team: Team; robotId: RobotCardId; stat: UpgradeStat; reason: 'phase' | 'charge' | 'maxTier' }

@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CardId } from '../game/core/types';
 import { readStorageItem, writeStorageItem } from './browserStorage';
+import {
+  CARD_COLLECTION_STORAGE_KEY,
+  readCardCollection,
+  saveCardCollection,
+} from './cardCollectionStorage';
 import { readLobbyLoadout, saveLobbyLoadout } from './loadoutStorage';
 import { readPlayerProgress, savePlayerProgress } from './playerProgressStorage';
 
@@ -105,5 +110,53 @@ describe('player progression persistence', () => {
     savePlayerProgress({ xp: 725.9, matches: 4.8 });
 
     expect(readPlayerProgress()).toEqual({ xp: 725, matches: 4 });
+  });
+});
+
+describe('card collection persistence', () => {
+  it('round-trips unlocked cards, mastery levels, and partial copy progress', () => {
+    const storage = createMemoryStorage();
+    vi.stubGlobal('localStorage', storage);
+    const collection = readCardCollection();
+    collection.aegis = { level: 2, copies: 7 };
+    collection.zip = { level: 3, copies: 11 };
+
+    expect(saveCardCollection(collection)).toBe(true);
+    expect(readCardCollection()).toMatchObject({
+      aegis: { level: 2, copies: 7 },
+      zip: { level: 3, copies: 11 },
+    });
+  });
+
+  it('falls back safely for malformed JSON and never relocks starters in partial data', () => {
+    const storage = createMemoryStorage();
+    vi.stubGlobal('localStorage', storage);
+
+    storage.setItem(CARD_COLLECTION_STORAGE_KEY, '{bad json');
+    expect(readCardCollection()).toMatchObject({
+      zip: { level: 1, copies: 0 },
+      aegis: { level: 0, copies: 0 },
+    });
+
+    storage.setItem(CARD_COLLECTION_STORAGE_KEY, JSON.stringify({
+      zip: { level: 0, copies: -100 },
+      aegis: { level: 0, copies: 8 },
+      viper: { level: 'five', copies: [] },
+    }));
+    expect(readCardCollection()).toMatchObject({
+      zip: { level: 1, copies: 0 },
+      aegis: { level: 1, copies: 0 },
+      viper: { level: 0, copies: 0 },
+      pulse: { level: 1, copies: 0 },
+    });
+  });
+
+  it('contains unavailable-storage failures without mutating defaults', () => {
+    vi.stubGlobal('localStorage', undefined);
+    const collection = readCardCollection();
+
+    expect(collection.zip.level).toBe(1);
+    expect(collection.aegis.level).toBe(0);
+    expect(saveCardCollection(collection)).toBe(false);
   });
 });

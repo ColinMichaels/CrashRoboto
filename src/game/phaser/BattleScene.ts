@@ -22,56 +22,42 @@ import type {
   CardDefinition,
   CombatEntityRef,
   GameEvent,
-  InstallationKind,
   InstallationState,
   MatchSnapshot,
   ProgramZoneState,
   ProjectileKind,
   RobotKind,
+  SpriteSheet,
   Team,
   TowerState,
   UnitState,
 } from '../core/types';
 import type { GameBridge } from '../bridge/GameBridge';
 import {
-  ARENA_UNIT_ATLAS_FRAME_COUNT,
-  ARENA_UNIT_ATLAS_FRAME_SIZE,
-  ARENA_UNIT_ATLAS_KEY,
   ARENA_UNIT_DISPLAY_HEIGHT_RATIO,
   getArenaUnitBodyOriginY,
   getArenaUnitFrame,
+  getArenaUnitTextureKey,
   getInitialArenaUnitDirection,
   resolveUnitPose,
   selectArenaUnitFlipX,
   type ArenaUnitDirection,
   type ArenaUnitPoseState,
 } from './unitPresentation';
-
-const ROBOT_SIZES: Record<RobotKind, number> = {
-  zip: 106,
-  swarm: 112,
-  brute: 142,
-  rail: 130,
-  pulse: 116,
-  arc: 122,
-  drone: 126,
-  patch: 118,
-  vector: 154,
-  microbot: 68,
-};
-
-const INSTALLATION_SIZES: Record<InstallationKind, number> = {
-  sentry: 158,
-  foundry: 180,
-};
-
-const PLAYER_COLOR = 0x28e7d2;
-const ENEMY_COLOR = 0xff6b5e;
-const PROGRAM_COLOR = 0x69dfff;
-const INSTALLATION_COLOR = 0xf6c453;
-const OVERDRIVE_COLOR = 0xffcf5a;
-const INVALID_COLOR = 0xff6b5e;
-const DISABLED_COLOR = 0x91a6ad;
+import { getArenaAssetManifest } from './arenaAssets';
+import {
+  DISABLED_COLOR,
+  ENEMY_COLOR,
+  INSTALLATION_COLOR,
+  INSTALLATION_SIZES,
+  INVALID_COLOR,
+  OVERDRIVE_COLOR,
+  PLAYER_COLOR,
+  PROGRAM_COLOR,
+  ROBOT_SIZES,
+  teamColor,
+  textureKey,
+} from './arenaPresentation';
 
 interface NanoZoneVisual {
   field: GameObjects.Graphics;
@@ -96,9 +82,6 @@ interface UnitMotionVisual {
   state: ArenaUnitPoseState;
 }
 
-const teamColor = (team: Team): number => (team === 'player' ? PLAYER_COLOR : ENEMY_COLOR);
-const textureKey = (sheet: 'robot' | 'system'): string => (sheet === 'system' ? 'system-sprites' : 'robot-sprites');
-
 export class BattleScene extends Scene {
   private readonly unitSprites = new Map<string, GameObjects.Sprite>();
   private readonly unitShadows = new Map<string, GameObjects.Ellipse>();
@@ -118,6 +101,7 @@ export class BattleScene extends Scene {
   private latestPointer = { x: 800, y: 500 };
   private previousPhase: MatchSnapshot['phase'] | null = null;
   private previousRemainingMs = 0;
+  private previousSnapshotRevision = -1;
   private unsubscribeEvents?: () => void;
 
   constructor(private readonly bridge: GameBridge) {
@@ -126,37 +110,18 @@ export class BattleScene extends Scene {
 
   preload(): void {
     const base = import.meta.env.BASE_URL;
-    this.load.image('arena-board', `${base}assets/game/arena-board-long.png`);
-    this.load.spritesheet('robot-sprites', `${base}assets/game/robot-sprites.png`, {
-      frameWidth: 443,
-      frameHeight: 443,
-      endFrame: 7,
-    });
-    this.load.spritesheet('tower-sprites', `${base}assets/game/tower-sprites.png`, {
-      frameWidth: 627,
-      frameHeight: 627,
-      endFrame: 3,
-    });
-    this.load.spritesheet('relay-weapon-sprites', `${base}assets/game/relay-weapon-sprites.png`, {
-      frameWidth: 512,
-      frameHeight: 512,
-      endFrame: 2,
-    });
-    this.load.spritesheet('system-sprites', `${base}assets/game/system-sprites.png`, {
-      frameWidth: 512,
-      frameHeight: 512,
-      endFrame: 5,
-    });
-    this.load.spritesheet('combat-vfx-sprites', `${base}assets/game/combat-vfx-sprites.png`, {
-      frameWidth: 627,
-      frameHeight: 627,
-      endFrame: 3,
-    });
-    this.load.spritesheet(ARENA_UNIT_ATLAS_KEY, `${base}assets/game/arena-robot-move-sprites.png`, {
-      frameWidth: ARENA_UNIT_ATLAS_FRAME_SIZE,
-      frameHeight: ARENA_UNIT_ATLAS_FRAME_SIZE,
-      endFrame: ARENA_UNIT_ATLAS_FRAME_COUNT - 1,
-    });
+    for (const asset of getArenaAssetManifest(this.bridge.getSnapshot().decks)) {
+      const path = `${base}${asset.path}`;
+      if (asset.type === 'image') {
+        this.load.image(asset.key, path);
+      } else {
+        this.load.spritesheet(asset.key, path, {
+          frameWidth: asset.frameWidth,
+          frameHeight: asset.frameHeight,
+          endFrame: asset.endFrame,
+        });
+      }
+    }
   }
 
   create(): void {
@@ -170,7 +135,12 @@ export class BattleScene extends Scene {
     this.targetLayer = this.add.graphics().setDepth(6.8);
     this.healthLayer = this.add.graphics().setDepth(8);
     this.ghost = this.add
-      .image(this.latestPointer.x, this.latestPointer.y, 'robot-sprites', 0)
+      .image(
+        this.latestPointer.x,
+        this.latestPointer.y,
+        getArenaUnitTextureKey('zip'),
+        getArenaUnitFrame('zip', 'away', 0),
+      )
       .setDisplaySize(112, 112)
       .setAlpha(0.64)
       .setDepth(7)
@@ -227,6 +197,7 @@ export class BattleScene extends Scene {
 
   private syncPresentation(): void {
     const snapshot = this.bridge.getSnapshot();
+    const snapshotChanged = snapshot.revision !== this.previousSnapshotRevision;
     const startingFreshMatch =
       snapshot.phase === 'playing' &&
       this.previousPhase !== null &&
@@ -237,52 +208,58 @@ export class BattleScene extends Scene {
     this.previousPhase = snapshot.phase;
     this.previousRemainingMs = snapshot.remainingMs;
 
-    const unitIds = new Set(snapshot.units.map((unit) => unit.id));
-    const towerIds = new Set(snapshot.towers.map((tower) => tower.id));
-    const installationIds = new Set(snapshot.installations.map((installation) => installation.id));
-    const zoneIds = new Set(snapshot.zones.map((zone) => zone.id));
-
+    // Units, active zones, and disabled installations have frame-driven motion or flicker.
     for (const unit of snapshot.units) this.syncUnit(unit, snapshot.phase);
-    for (const [id, sprite] of this.unitSprites) {
-      if (!unitIds.has(id) && !this.pendingDeathIds.has(id)) {
-        this.tweens.killTweensOf(sprite);
-        sprite.destroy();
-        this.unitSprites.delete(id);
-        this.destroyUnitAuxiliary(id);
-      }
-    }
-
-    for (const tower of snapshot.towers) this.syncTower(tower);
-    for (const [id, sprite] of this.towerSprites) {
-      if (!towerIds.has(id)) {
-        sprite.destroy();
-        this.towerSprites.delete(id);
-      }
-    }
-
     for (const installation of snapshot.installations) this.syncInstallation(installation);
-    for (const [id, sprite] of this.installationSprites) {
-      if (!installationIds.has(id) && !this.pendingDeathIds.has(id)) {
-        this.tweens.killTweensOf(sprite);
-        sprite.destroy();
-        this.installationSprites.delete(id);
-      }
-    }
-
     for (const zone of snapshot.zones) this.syncNanoZone(zone);
-    for (const [id, visual] of this.nanoZoneVisuals) {
-      if (!zoneIds.has(id)) {
-        this.tweens.killTweensOf(visual.core);
-        visual.field.destroy();
-        visual.core.destroy();
-        this.nanoZoneVisuals.delete(id);
+
+    if (snapshotChanged) {
+      const unitIds = new Set(snapshot.units.map((unit) => unit.id));
+      const towerIds = new Set(snapshot.towers.map((tower) => tower.id));
+      const installationIds = new Set(snapshot.installations.map((installation) => installation.id));
+      const zoneIds = new Set(snapshot.zones.map((zone) => zone.id));
+
+      for (const [id, sprite] of this.unitSprites) {
+        if (!unitIds.has(id) && !this.pendingDeathIds.has(id)) {
+          this.tweens.killTweensOf(sprite);
+          sprite.destroy();
+          this.unitSprites.delete(id);
+          this.destroyUnitAuxiliary(id);
+        }
       }
+
+      for (const tower of snapshot.towers) this.syncTower(tower);
+      for (const [id, sprite] of this.towerSprites) {
+        if (!towerIds.has(id)) {
+          sprite.destroy();
+          this.towerSprites.delete(id);
+        }
+      }
+
+      for (const [id, sprite] of this.installationSprites) {
+        if (!installationIds.has(id) && !this.pendingDeathIds.has(id)) {
+          this.tweens.killTweensOf(sprite);
+          sprite.destroy();
+          this.installationSprites.delete(id);
+        }
+      }
+
+      for (const [id, visual] of this.nanoZoneVisuals) {
+        if (!zoneIds.has(id)) {
+          this.tweens.killTweensOf(visual.core);
+          visual.field.destroy();
+          visual.core.destroy();
+          this.nanoZoneVisuals.delete(id);
+        }
+      }
+
+      this.drawHealth(snapshot.units, snapshot.towers, snapshot.installations);
+      this.drawDeployZone(snapshot);
+      this.updateGhost();
+      this.previousSnapshotRevision = snapshot.revision;
     }
 
     this.drawStatus(snapshot);
-    this.drawHealth(snapshot.units, snapshot.towers, snapshot.installations);
-    this.drawDeployZone(snapshot);
-    this.updateGhost();
   }
 
   private syncUnit(unit: UnitState, phase: MatchSnapshot['phase']): void {
@@ -296,7 +273,7 @@ export class BattleScene extends Scene {
         .sprite(
           unit.x,
           unit.y,
-          ARENA_UNIT_ATLAS_KEY,
+          getArenaUnitTextureKey(unit.kind),
           getArenaUnitFrame(unit.kind, getInitialArenaUnitDirection(unit.team), 0),
         )
         .setDisplaySize(size, displayHeight);
@@ -432,12 +409,13 @@ export class BattleScene extends Scene {
     const size = INSTALLATION_SIZES[installation.kind] * getPerspectiveScale(installation.y);
     if (!sprite) {
       sprite = this.add
-        .image(installation.x, installation.y, 'system-sprites', definition.frame)
+        .image(installation.x, installation.y, textureKey(definition.sheet), definition.frame)
         .setDisplaySize(size, size);
       this.installationSprites.set(installation.id, sprite);
     }
 
     sprite
+      .setTexture(textureKey(definition.sheet), definition.frame)
       .setPosition(installation.x, installation.y)
       .setDisplaySize(size, size)
       .setDepth(4.7 + installation.y / 1000)
@@ -524,17 +502,42 @@ export class BattleScene extends Scene {
     }
 
     for (const unit of snapshot.units) {
-      if (unit.hp <= 0 || unit.disabledMs <= 0) continue;
+      if (unit.hp <= 0) continue;
       const scale = getPerspectiveScale(unit.y);
       const radius = Math.max(20, ROBOT_SIZES[unit.kind] * 0.3 * scale);
-      this.drawDisabledMarker(unit.x, unit.y, radius);
+      if (unit.maxShieldHp > 0 && unit.shieldHp > 0) {
+        const shieldRatio = unit.shieldHp / unit.maxShieldHp;
+        const shieldPulse = 0.42 + Math.sin(this.time.now / 115) * 0.12;
+        this.statusLayer
+          .lineStyle(3, 0x72f7ff, shieldPulse + shieldRatio * 0.28)
+          .strokeCircle(unit.x, unit.y, radius * (1.06 + shieldRatio * 0.08));
+      }
+      if (unit.slowMs > 0) {
+        this.statusLayer
+          .lineStyle(2, 0xb66cff, 0.62)
+          .strokeCircle(unit.x, unit.y, radius * 0.86)
+          .lineStyle(1, 0xe8caff, 0.34)
+          .strokeCircle(unit.x, unit.y, radius * 0.6);
+      }
+      if (unit.disabledMs > 0) this.drawDisabledMarker(unit.x, unit.y, radius);
     }
 
     for (const installation of snapshot.installations) {
-      if (installation.hp <= 0 || installation.remainingMs <= 0 || installation.disabledMs <= 0) continue;
+      if (installation.hp <= 0 || installation.remainingMs <= 0) continue;
       const scale = getPerspectiveScale(installation.y);
       const radius = Math.max(24, INSTALLATION_SIZES[installation.kind] * 0.29 * scale);
-      this.drawDisabledMarker(installation.x, installation.y, radius);
+      if (installation.kind === 'firewall' && installation.disabledMs <= 0) {
+        const pulse = 0.44 + Math.sin(this.time.now / 145) * 0.12;
+        const auraRadius = INSTALLATIONS.firewall.auraRadius ?? 130;
+        this.statusLayer
+          .fillStyle(teamColor(installation.team), 0.022 + pulse * 0.018)
+          .fillCircle(installation.x, installation.y, auraRadius)
+          .lineStyle(2, teamColor(installation.team), 0.34 + pulse * 0.22)
+          .strokeCircle(installation.x, installation.y, auraRadius)
+          .lineStyle(1, 0xc8fff4, 0.22)
+          .strokeCircle(installation.x, installation.y, auraRadius * 0.72);
+      }
+      if (installation.disabledMs > 0) this.drawDisabledMarker(installation.x, installation.y, radius);
     }
   }
 
@@ -566,17 +569,21 @@ export class BattleScene extends Scene {
       );
     }
     for (const unit of units) {
-      if (unit.hp <= 0 || unit.hp >= unit.maxHp) continue;
+      if (unit.hp <= 0 || (unit.hp >= unit.maxHp && unit.maxShieldHp === 0)) continue;
       const scale = getPerspectiveScale(unit.y);
       const width = Math.max(34, ROBOT_SIZES[unit.kind] * 0.54 * scale);
       const displayHeight = ROBOT_SIZES[unit.kind] * scale * ARENA_UNIT_DISPLAY_HEIGHT_RATIO[unit.kind];
+      const barY = unit.y - displayHeight * 0.53;
       this.drawHealthBar(
         unit.x - width / 2,
-        unit.y - displayHeight * 0.53,
+        barY,
         width,
         unit.hp / unit.maxHp,
         unit.team,
       );
+      if (unit.maxShieldHp > 0) {
+        this.drawShieldBar(unit.x - width / 2, barY - 7, width, unit.shieldHp / unit.maxShieldHp);
+      }
     }
     for (const installation of installations) {
       if (installation.hp <= 0 || installation.remainingMs <= 0) continue;
@@ -600,6 +607,13 @@ export class BattleScene extends Scene {
     this.healthLayer
       .fillStyle(team === 'player' ? PLAYER_COLOR : ENEMY_COLOR, 1)
       .fillRoundedRect(x, y, Math.max(0, width * Math.min(1, ratio)), 5, 2);
+  }
+
+  private drawShieldBar(x: number, y: number, width: number, ratio: number): void {
+    this.healthLayer.fillStyle(0x061014, 0.82).fillRoundedRect(x - 2, y - 2, width + 4, 6, 3);
+    this.healthLayer
+      .fillStyle(0x8ff8ff, 0.95)
+      .fillRoundedRect(x, y, Math.max(0, width * Math.min(1, ratio)), 2, 1);
   }
 
   private drawLifetimeBar(x: number, y: number, width: number, ratio: number, disabled: boolean): void {
@@ -692,7 +706,7 @@ export class BattleScene extends Scene {
     if (card.category === 'unit' || card.category === 'commander') {
       const kind = card.id as RobotKind;
       this.ghost
-        .setTexture(ARENA_UNIT_ATLAS_KEY, getArenaUnitFrame(kind, 'away', 0))
+        .setTexture(getArenaUnitTextureKey(kind), getArenaUnitFrame(kind, 'away', 0))
         .setDisplaySize(size, size * ARENA_UNIT_DISPLAY_HEIGHT_RATIO[kind]);
     } else {
       this.ghost
@@ -722,7 +736,12 @@ export class BattleScene extends Scene {
       .lineBetween(x, y + radius * 0.58, x, y + radius + 12);
 
     if (card.category === 'unit' || card.category === 'commander') {
-      const range = getEffectiveRobotStats(card.id as RobotKind, snapshot.upgrades.player[card.id as Exclude<RobotKind, 'microbot'>]).range;
+      const robotId = card.id as Exclude<RobotKind, 'microbot'>;
+      const range = getEffectiveRobotStats(
+        card.id as RobotKind,
+        snapshot.upgrades.player[robotId],
+        snapshot.cardLevels.player[robotId],
+      ).range;
       this.targetLayer.lineStyle(1, color, valid ? 0.2 : 0.1).strokeCircle(x, y, range);
       const routeY = y > 340 ? 335 : y > 275 ? 270 : 118;
       this.targetLayer
@@ -760,6 +779,9 @@ export class BattleScene extends Scene {
         return;
       case 'installationPlaced':
         this.showInstallationPlaced(event);
+        return;
+      case 'unitDashed':
+        this.showUnitDash(event);
         return;
       case 'overdriveActivated':
         this.showOverdrive(event);
@@ -1107,9 +1129,10 @@ export class BattleScene extends Scene {
     const definition = PROGRAMS[event.kind];
     const color = teamColor(event.team);
     const frame = definition.frame;
-    const size = event.kind === 'emp' ? 112 : 94;
-    this.spawnBurstIcon(frame, event.x, event.y, size * getPerspectiveScale(event.y), color, 520);
-    this.spawnRing(event.x, event.y, color, 14, event.radius, event.kind === 'emp' ? 430 : 620, 8.8);
+    const size = event.kind === 'emp' ? 112 : event.kind === 'gravity' ? 122 : 94;
+    const effectColor = event.kind === 'gravity' ? 0xb66cff : color;
+    this.spawnBurstIcon(definition.sheet, frame, event.x, event.y, size * getPerspectiveScale(event.y), effectColor, 520);
+    this.spawnRing(event.x, event.y, effectColor, 14, event.radius, event.kind === 'emp' ? 430 : 620, 8.8);
     if (event.kind === 'emp') {
       this.spawnRing(event.x, event.y, 0xd6ffff, 8, event.radius * 0.72, 300, 8.9, 90);
       this.cameras.main.shake(110, 0.0028);
@@ -1120,12 +1143,29 @@ export class BattleScene extends Scene {
     const definition = INSTALLATIONS[event.kind];
     const color = teamColor(event.team);
     this.spawnRing(event.x, event.y, color, 18, definition.radius + 58, 440, 7.2);
-    this.spawnBurstIcon(definition.frame, event.x, event.y, 88 * getPerspectiveScale(event.y), color, 390, 0.32);
+    this.spawnBurstIcon(definition.sheet, definition.frame, event.x, event.y, 88 * getPerspectiveScale(event.y), color, 390, 0.32);
+  }
+
+  private showUnitDash(event: Extract<GameEvent, { type: 'unitDashed' }>): void {
+    const color = event.team === 'player' ? 0x72f7ff : ENEMY_COLOR;
+    const trail = this.trackCombatVfx(
+      this.add.line(0, 0, event.fromX, event.fromY, event.toX, event.toY, color, 0.72)
+        .setLineWidth(5, 1)
+        .setOrigin(0)
+        .setDepth(7.2),
+    );
+    this.spawnRing(event.toX, event.toY, color, 8, 42, 260, 7.3);
+    this.tweens.add({
+      targets: trail,
+      alpha: 0,
+      duration: 260,
+      onComplete: () => this.destroyCombatVfx(trail),
+    });
   }
 
   private showOverdrive(event: Extract<GameEvent, { type: 'overdriveActivated' }>): void {
     const color = event.team === 'player' ? OVERDRIVE_COLOR : ENEMY_COLOR;
-    this.spawnBurstIcon(5, event.x, event.y, 96 * getPerspectiveScale(event.y), color, 560);
+    this.spawnBurstIcon('system', 5, event.x, event.y, 96 * getPerspectiveScale(event.y), color, 560);
     this.spawnRing(event.x, event.y, color, 26, OVERDRIVE_AURA_RADIUS, 520, 8.8);
     this.spawnRing(event.x, event.y, 0xfff2b5, 18, OVERDRIVE_AURA_RADIUS * 0.68, 380, 8.9, 70);
     this.cameras.main.shake(150, 0.0035);
@@ -1155,6 +1195,7 @@ export class BattleScene extends Scene {
   }
 
   private spawnBurstIcon(
+    sheet: SpriteSheet,
     frame: number,
     x: number,
     y: number,
@@ -1164,7 +1205,7 @@ export class BattleScene extends Scene {
     startAlpha = 0.78,
   ): void {
     const icon = this.add
-      .image(x, y, 'system-sprites', frame)
+      .image(x, y, textureKey(sheet), frame)
       .setDisplaySize(size, size)
       .setDepth(9)
       .setAlpha(startAlpha)
