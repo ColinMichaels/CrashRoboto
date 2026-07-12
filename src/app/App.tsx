@@ -1,5 +1,11 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { MusicEngine } from '../audio/MusicEngine';
 import { SoundEngine } from '../audio/SoundEngine';
+import { DEFAULT_SFX_VOLUME, parseAudioVolumePreference } from '../audio/audioVolume';
+import {
+  getBundledMusicPlaylist,
+  parseMusicVolumePreference,
+} from '../audio/musicCatalog';
 import { GameBridge } from '../game/bridge/GameBridge';
 import type {
   CardId,
@@ -11,6 +17,7 @@ import type {
   UpgradeStat,
 } from '../game/core/types';
 import type { PilotId } from '../game/core/pilots';
+import { MusicPlayer } from '../features/audio/MusicPlayer';
 import { GameOverlay } from '../features/hud/GameOverlay';
 import { Hud } from '../features/hud/Hud';
 import { useGameSnapshot } from '../features/hud/useGameSnapshot';
@@ -41,8 +48,27 @@ import { readLobbyLoadout, resetLobbyLoadout, saveLobbyLoadout } from './loadout
 const loadGameCanvas = () => import('./GameCanvas');
 const GameCanvas = lazy(() => loadGameCanvas().then((module) => ({ default: module.GameCanvas })));
 const prepareArena = () => { void loadGameCanvas(); };
-const MUTE_STORAGE_KEY = 'crash-roboto-muted';
+const LEGACY_MUTE_STORAGE_KEY = 'crash-roboto-muted';
+const SFX_MUTE_STORAGE_KEY = 'crash-roboto-sfx-muted';
+const MUSIC_MUTE_STORAGE_KEY = 'crash-roboto-music-muted';
+const MUSIC_VOLUME_STORAGE_KEY = 'crash-roboto-music-volume';
+const SFX_VOLUME_STORAGE_KEY = 'crash-roboto-sfx-volume';
 const TUTORIAL_STORAGE_KEY = 'crash-roboto-tutorial-complete';
+const BUNDLED_MUSIC_PLAYLIST = getBundledMusicPlaylist();
+
+function readMutePreference(key: string): boolean {
+  const stored = readStorageItem(key);
+  if (stored !== null) return stored === 'true';
+  return readStorageItem(LEGACY_MUTE_STORAGE_KEY) === 'true';
+}
+
+function readMusicVolume(): number {
+  return parseMusicVolumePreference(readStorageItem(MUSIC_VOLUME_STORAGE_KEY));
+}
+
+function readSfxVolume(): number {
+  return parseAudioVolumePreference(readStorageItem(SFX_VOLUME_STORAGE_KEY), DEFAULT_SFX_VOLUME);
+}
 
 function readSeed() {
   const value = new URLSearchParams(window.location.search).get('seed');
@@ -54,12 +80,15 @@ function readSeed() {
 
 export function App() {
   const bridge = useMemo(() => new GameBridge(readSeed()), []);
-  const sound = useMemo(() => new SoundEngine(), []);
+  const sound = useMemo(() => new SoundEngine({ volume: readSfxVolume() }), []);
+  const music = useMemo(() => new MusicEngine(BUNDLED_MUSIC_PLAYLIST, { volume: readMusicVolume() }), []);
   const snapshot = useGameSnapshot(bridge);
   const frameRef = useRef<HTMLDivElement>(null);
   const dragOriginRef = useRef<{ cardId: CardId; x: number; y: number } | null>(null);
   const labTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const [muted, setMuted] = useState(() => readStorageItem(MUTE_STORAGE_KEY) === 'true');
+  const [sfxMuted, setSfxMuted] = useState(() => readMutePreference(SFX_MUTE_STORAGE_KEY));
+  const [sfxVolume, setSfxVolume] = useState(() => sound.getVolume());
+  const [musicMuted, setMusicMuted] = useState(() => readMutePreference(MUSIC_MUTE_STORAGE_KEY));
   const [inspectedRobot, setInspectedRobot] = useState<RobotCardId | null>(null);
   const {
     playerProgress,
@@ -90,14 +119,31 @@ export function App() {
 
   const dispatch = useCallback((command: GameCommand) => bridge.dispatch(command), [bridge]);
   const select = useCallback((cardId: CardId) => {
-    sound.blip();
     dispatch({ type: 'select', cardId: snapshot.selected === cardId ? null : cardId });
-  }, [dispatch, snapshot.selected, sound]);
+  }, [dispatch, snapshot.selected]);
 
-  const toggleMute = useCallback(() => {
-    if (muted) sound.unlock();
-    setMuted((current) => !current);
-  }, [muted, sound]);
+  const toggleSfxMute = useCallback(() => {
+    if (sfxMuted) sound.unlock();
+    setSfxMuted((current) => !current);
+  }, [sfxMuted, sound]);
+
+  const toggleMusicMute = useCallback(() => {
+    const phase = snapshotRef.current.phase;
+    if (musicMuted && (phase === 'playing' || phase === 'paused')) void music.play();
+    setMusicMuted((current) => !current);
+  }, [music, musicMuted]);
+
+  const changeMusicVolume = useCallback((volume: number) => {
+    music.setVolume(volume);
+    writeStorageItem(MUSIC_VOLUME_STORAGE_KEY, String(music.getSnapshot().volume));
+  }, [music]);
+
+  const changeSfxVolume = useCallback((volume: number) => {
+    sound.setVolume(volume);
+    const nextVolume = sound.getVolume();
+    setSfxVolume(nextVolume);
+    writeStorageItem(SFX_VOLUME_STORAGE_KEY, String(nextVolume));
+  }, [sound]);
 
   const selectMode = useCallback((modeId: GameModeId) => {
     sound.blip();
@@ -119,7 +165,7 @@ export function App() {
 
   const toggleLobbyCard = useCallback((cardId: CardId) => {
     if (!isCardUnlocked(cardCollection, cardId)) return;
-    sound.blip();
+    sound.playCardSelected(cardId);
     setLobbyLoadout((current) => {
       if (current.deck.includes(cardId)) {
         const upgrades = cloneRobotUpgrades(current.upgrades);
@@ -134,7 +180,7 @@ export function App() {
   }, [cardCollection, sound]);
 
   const removeLobbyCard = useCallback((cardId: CardId) => {
-    sound.blip();
+    sound.playCardSelected(cardId);
     setLobbyLoadout((current) => {
       const upgrades = cloneRobotUpgrades(current.upgrades);
       if (CARDS[cardId].category === 'unit' || CARDS[cardId].category === 'commander') {
@@ -191,7 +237,7 @@ export function App() {
     ) return;
     saveLobbyLoadout(lobbyLoadout);
     clearMatchRewards();
-    sound.blip();
+    if (!musicMuted) void music.play();
     dispatch({
       type: 'start',
       config: {
@@ -204,7 +250,7 @@ export function App() {
       },
     });
     if (tutorialStep === 'launch') setTutorialStep('select');
-  }, [cardCollection, clearMatchRewards, dispatch, firmwareBudget, lobbyLoadout, sound, tutorialStep]);
+  }, [cardCollection, clearMatchRewards, dispatch, firmwareBudget, lobbyLoadout, music, musicMuted, tutorialStep]);
 
   const startTutorial = useCallback(() => {
     tutorialFirmwareBaselineRef.current = firmwareSpent;
@@ -272,9 +318,13 @@ export function App() {
   }, [playDraggedCard]);
 
   useEffect(() => {
-    sound.setMuted(muted);
-    writeStorageItem(MUTE_STORAGE_KEY, String(muted));
-  }, [muted, sound]);
+    sound.setMuted(sfxMuted);
+    writeStorageItem(SFX_MUTE_STORAGE_KEY, String(sfxMuted));
+  }, [sfxMuted, sound]);
+  useEffect(() => {
+    music.setMuted(musicMuted);
+    writeStorageItem(MUSIC_MUTE_STORAGE_KEY, String(musicMuted));
+  }, [music, musicMuted]);
   useEffect(() => bridge.subscribeToEvents((event) => sound.playEvent(event)), [bridge, sound]);
   useEffect(() => saveLobbyLoadout(lobbyLoadout), [lobbyLoadout]);
   useEffect(() => {
@@ -327,7 +377,6 @@ export function App() {
       if (/^[1-4]$/.test(event.key) && currentSnapshot.phase === 'playing') {
         const cardId = currentSnapshot.hands.player[Number(event.key) - 1];
         if (cardId) {
-          sound.blip();
           dispatch({ type: 'select', cardId: currentSnapshot.selected === cardId ? null : cardId });
         }
       } else if (event.key === 'Escape') {
@@ -336,14 +385,15 @@ export function App() {
       } else if (event.key.toLowerCase() === 'p' && currentSnapshot.phase !== 'menu' && currentSnapshot.phase !== 'ended') {
         togglePause();
       } else if (event.key.toLowerCase() === 'm') {
-        toggleMute();
+        if (event.shiftKey) toggleSfxMute();
+        else toggleMusicMute();
       } else if (event.key.toLowerCase() === 'r' && currentSnapshot.phase === 'ended') {
         restartMatch();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [closeRobotStats, dispatch, restartMatch, sound, toggleMute, togglePause]);
+  }, [closeRobotStats, dispatch, restartMatch, toggleMusicMute, togglePause, toggleSfxMute]);
 
   useEffect(() => {
     if (!import.meta.env.DEV) return;
@@ -357,8 +407,9 @@ export function App() {
   }, [bridge]);
   useEffect(() => () => {
     bridge.dispose();
+    music.dispose();
     sound.dispose();
-  }, [bridge, sound]);
+  }, [bridge, music, sound]);
 
   return (
     <main className="app-shell">
@@ -393,8 +444,8 @@ export function App() {
             onReset={resetLoadout}
             onPrepareLaunch={prepareArena}
             onLaunch={launchMatch}
-            muted={muted}
-            onToggleMute={toggleMute}
+            sfxMuted={sfxMuted}
+            onToggleSfxMute={toggleSfxMute}
           />
         ) : (
           <>
@@ -404,7 +455,7 @@ export function App() {
             <Hud
               snapshot={snapshot}
               pilotId={lobbyLoadout.pilotId}
-              muted={muted}
+              sfxMuted={sfxMuted}
               onSelect={select}
               onBeginDrag={(cardId, x, y) => { dragOriginRef.current = { cardId, x, y }; }}
               onCancelDrag={() => { dragOriginRef.current = null; }}
@@ -414,7 +465,7 @@ export function App() {
               onUpgradeRobot={(robotId: RobotCardId, stat: UpgradeStat) => dispatch({ type: 'upgradeRobot', team: 'player', robotId, stat })}
               onActivateOverdrive={() => dispatch({ type: 'activateOverdrive', team: 'player' })}
               onTogglePause={togglePause}
-              onToggleMute={toggleMute}
+              onToggleSfxMute={toggleSfxMute}
               blocked={snapshot.phase !== 'playing'}
             />
             <GameOverlay
@@ -428,6 +479,15 @@ export function App() {
             />
           </>
         )}
+        <MusicPlayer
+          engine={music}
+          bundledPlaylist={BUNDLED_MUSIC_PLAYLIST}
+          muted={musicMuted}
+          sfxVolume={sfxVolume}
+          onToggleMute={toggleMusicMute}
+          onVolumeChange={changeMusicVolume}
+          onSfxVolumeChange={changeSfxVolume}
+        />
         {tutorialStep && (
           <TutorialCoach step={tutorialStep} onSkip={stopTutorial} onComplete={finishTutorial} />
         )}

@@ -61,8 +61,8 @@ export interface LobbyProps {
   onReset: () => void;
   onPrepareLaunch: () => void;
   onLaunch: () => void;
-  muted: boolean;
-  onToggleMute: () => void;
+  sfxMuted: boolean;
+  onToggleSfxMute: () => void;
 }
 
 const CATEGORY_LABELS: Record<CardCategory, string> = {
@@ -302,8 +302,8 @@ export function Lobby({
   onReset,
   onPrepareLaunch,
   onLaunch,
-  muted,
-  onToggleMute,
+  sfxMuted,
+  onToggleSfxMute,
 }: LobbyProps) {
   const modeHeadingId = useId();
   const launchHintId = useId();
@@ -447,11 +447,13 @@ export function Lobby({
           <button
             className="lobby-sound-button"
             type="button"
-            onClick={onToggleMute}
-            aria-label={muted ? 'Unmute sound' : 'Mute sound'}
-            aria-pressed={muted}
+            onClick={onToggleSfxMute}
+            aria-label={sfxMuted ? 'Unmute sound effects' : 'Mute sound effects'}
+            aria-pressed={sfxMuted}
+            title="Sound effects mute (Shift+M)"
+            data-testid="sfx-mute-toggle"
           >
-            <SoundIcon muted={muted} />
+            <SoundIcon muted={sfxMuted} />
           </button>
           <button
             ref={pilotTriggerRef}

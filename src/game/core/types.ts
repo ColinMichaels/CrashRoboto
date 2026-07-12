@@ -296,6 +296,8 @@ export type GameCommand =
   | { type: 'upgradeRobot'; team: Team; robotId: RobotCardId; stat: UpgradeStat };
 
 export type GameEvent =
+  | { type: 'matchStarted'; modeId: GameModeId; restart: boolean }
+  | { type: 'cardSelected'; team: 'player'; cardId: CardId }
   | { type: 'cardPlayed'; team: Team; cardId: CardId; x: number; y: number }
   | { type: 'playRejected'; team: Team; reason: 'phase' | 'charge' | 'hand' | 'zone' | 'unique' | 'disabled' | 'cooldown' }
   | { type: 'programCast'; team: Team; kind: ProgramKind; x: number; y: number; radius: number }

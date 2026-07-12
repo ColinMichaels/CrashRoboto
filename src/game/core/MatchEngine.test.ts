@@ -199,6 +199,25 @@ describe('MatchEngine', () => {
     expect(snapshot.towers.filter((tower) => tower.kind === 'core')).toHaveLength(2);
   });
 
+  it('emits authoritative match-start and card-selection presentation events once', () => {
+    const events: GameEvent[] = [];
+    const engine = new MatchEngine((event) => events.push(event));
+
+    expect(engine.dispatch({ type: 'start' })).toBe(true);
+    const selectedCard = engine.getSnapshot().hands.player[0]!;
+    expect(engine.dispatch({ type: 'select', cardId: selectedCard })).toBe(true);
+    expect(engine.dispatch({ type: 'select', cardId: null })).toBe(true);
+    expect(engine.dispatch({ type: 'restart' })).toBe(true);
+
+    expect(events.filter((event) => event.type === 'matchStarted')).toEqual([
+      { type: 'matchStarted', modeId: 'core-siege', restart: false },
+      { type: 'matchStarted', modeId: 'core-siege', restart: true },
+    ]);
+    expect(events.filter((event) => event.type === 'cardSelected')).toEqual([
+      { type: 'cardSelected', team: 'player', cardId: selectedCard },
+    ]);
+  });
+
   it('configures each player Relay with a distinct weapon tradeoff and splash behavior', () => {
     const towers = createTowers(1, { left: 'rocket', right: 'flame' });
     expect(towers.find((tower) => tower.id === 'player-left')).toMatchObject({

@@ -205,10 +205,12 @@ export class MatchEngine {
         if (!config) return false;
         this.lockMatchConfig(config);
         this.reset('playing');
+        this.emit({ type: 'matchStarted', modeId: this.modeId, restart: false });
         return true;
       }
       case 'restart':
         this.reset('playing');
+        this.emit({ type: 'matchStarted', modeId: this.modeId, restart: true });
         return true;
       case 'returnToLobby':
         this.reset('menu');
@@ -231,6 +233,7 @@ export class MatchEngine {
         this.selected = command.cardId;
         this.guidance = command.cardId ? this.getCardGuidance(command.cardId) : null;
         this.guidanceMs = command.cardId ? 2_500 : 0;
+        if (command.cardId) this.emit({ type: 'cardSelected', team: 'player', cardId: command.cardId });
         this.revision += 1;
         return true;
       case 'playCard':

@@ -9,7 +9,7 @@ import { RobotStatsDialog } from './RobotStatsDialog';
 interface HudProps {
   snapshot: MatchSnapshot;
   pilotId: PilotId;
-  muted: boolean;
+  sfxMuted: boolean;
   onSelect: (cardId: CardId) => void;
   onBeginDrag: (cardId: CardId, clientX: number, clientY: number) => void;
   onCancelDrag: () => void;
@@ -19,7 +19,7 @@ interface HudProps {
   onUpgradeRobot: (robotId: RobotCardId, stat: UpgradeStat) => void;
   onActivateOverdrive: () => void;
   onTogglePause: () => void;
-  onToggleMute: () => void;
+  onToggleSfxMute: () => void;
   blocked: boolean;
 }
 
@@ -46,7 +46,7 @@ const STAGE_LABELS = {
 export function Hud({
   snapshot,
   pilotId,
-  muted,
+  sfxMuted,
   onSelect,
   onBeginDrag,
   onCancelDrag,
@@ -56,7 +56,7 @@ export function Hud({
   onUpgradeRobot,
   onActivateOverdrive,
   onTogglePause,
-  onToggleMute,
+  onToggleSfxMute,
   blocked,
 }: HudProps) {
   const pilot = PILOTS[pilotId];
@@ -106,8 +106,16 @@ export function Hud({
         onActivateOverdrive={onActivateOverdrive}
       />
 
-      <button className="utility-button sound-button" type="button" onClick={onToggleMute} aria-label={muted ? 'Unmute sound' : 'Mute sound'}>
-        <SoundIcon muted={muted} />
+      <button
+        className="utility-button sound-button"
+        type="button"
+        onClick={onToggleSfxMute}
+        aria-label={sfxMuted ? 'Unmute sound effects' : 'Mute sound effects'}
+        aria-pressed={sfxMuted}
+        title="Sound effects mute (Shift+M)"
+        data-testid="sfx-mute-toggle"
+      >
+        <SoundIcon muted={sfxMuted} />
       </button>
       <button className="utility-button pause-button" type="button" onClick={onTogglePause} disabled={snapshot.phase === 'menu' || snapshot.phase === 'ended'} aria-label={snapshot.phase === 'paused' ? 'Resume game' : 'Pause game'}>
         {snapshot.phase === 'paused' ? (

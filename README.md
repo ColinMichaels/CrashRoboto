@@ -41,13 +41,16 @@ GitHub Pages must serve the built output, not the repository root. If Pages serv
 - Placement previews report the selected lane, attack or ability range, enemy tower coverage, insufficient Charge, locked territory, and physical obstructions before a card is dropped.
 - Use the lobby's Balanced, Rush, Siege, and Control presets or follow the live deck advisor when a loadout lacks openers, area control, support, Installations, or structure pressure.
 - Choose **TRAINING** in the lobby for an action-driven tutorial covering Firmware, launch, card selection, deployment, and Relay breaches.
+- Use the audio console to play the bundled **Crash Roboto** theme, adjust music and SFX independently, or load multiple locally exported audio files as a temporary playlist. Both levels default to a safer 50% for new players and persist separately.
+- Music and synthesized sound effects have separate mute controls and persist independently between sessions.
+- Every playable card has an original short robot-voice acknowledgement; successful deployment, shared gun/rocket/flame weapons, programs, Installations, destruction, match start, tower loss, victory, defeat, and draw have dedicated procedural cues.
 - Use a robot card's **LAB** control to inspect its abilities, range, output, and speed.
 - Robot Lab firmware buttons spend match Charge on Output, Range, or Speed upgrades for that robot type.
 - Programs can be targeted anywhere on the active battlefield; robots and Installations begin on your side and can later use only enemy lanes whose Relay has been destroyed.
 - When VECTOR-9 is active, use the **Overdrive** control to spend 2 Charge on its command aura.
 - Press `1`–`4` to select a card.
 - Press `Esc` or right-click to cancel selection.
-- Press `P` to pause, `M` to toggle sound, and `R` to restart after a match.
+- Press `P` to pause, `M` to toggle music, `Shift+M` to toggle sound effects, and `R` to restart after a match.
 
 ## Battle protocols
 
@@ -55,7 +58,7 @@ GitHub Pages must serve the built output, not the repository root. If Pages serv
 - **Turbo Grid** — a 90-second high-Charge fight with lighter Relay towers.
 - **Relay Rush** — a two-minute race that ends as soon as either network breaches both enemy Relays.
 
-The selected pilot, mode, last valid eight-chip loadout, and lobby Firmware allocation are stored locally. A seeded shuffle chooses the opening four-chip hand, then the remaining chips rotate fairly through the queue as cards are played.
+The selected pilot, mode, last valid eight-chip loadout, lobby Firmware allocation, separate music/SFX levels, and separate music/SFX mute preferences are stored locally. A seeded shuffle chooses the opening four-chip hand, then the remaining chips rotate fairly through the queue as cards are played. Playlists loaded from local files remain available only for the current browser session.
 
 Card collection progress is stored separately from the loadout. The original 13 cards begin unlocked; five Vault cards are recovered through Victory Caches. Locked-card fragments and permanent Mastery Marks survive reloads and apply to every future match.
 
@@ -96,7 +99,7 @@ Card collection progress is stored separately from the loadout. The original 13 
 npm run check
 ```
 
-This runs the TypeScript compiler, Vitest suite, and production build. The deterministic simulation tests cover deck validation and shuffle behavior, custom card cycling, all three battle protocols, Charge regeneration, Robot Lab upgrades, Card Mastery, all five Vault abilities, Relay weapon packages and splash behavior, projectile/destruction event ordering, Program damage and control, Installation decay and fabrication, Commander Overdrive, pausing, terminal-event ordering, Relay scoring, instant Core victory, lobby return, and seeded replay consistency. Progression tests cover chest odds and reward boundaries, fragment promotions, direct upgrades, corrupted random input, and collection normalization. Presentation tests cover atlas mapping, direction hysteresis, gait timing, paused/disabled/dead frames, and chassis metadata. Storage tests cover unavailable browser storage, partial loadout edits, card-collection recovery, and persistent Tower Bay selections.
+This runs the TypeScript compiler, Vitest suite, and production build. The deterministic simulation tests cover deck validation and shuffle behavior, custom card cycling, all three battle protocols, Charge regeneration, Robot Lab upgrades, Card Mastery, all five Vault abilities, Relay weapon packages and splash behavior, projectile/destruction event ordering, Program damage and control, Installation decay and fabrication, Commander Overdrive, pausing, terminal-event ordering, Relay scoring, instant Core victory, lobby return, and seeded replay consistency. Progression tests cover chest odds and reward boundaries, fragment promotions, direct upgrades, corrupted random input, and collection normalization. Presentation tests cover atlas mapping, direction hysteresis, gait timing, paused/disabled/dead frames, and chassis metadata. Audio tests cover playlist setup, playback state, track advancement, level/seek limits, exhaustive card-voice profiles, event-to-cue routing, weapon timing, and disposal. Storage tests cover unavailable browser storage, partial loadout edits, card-collection recovery, and persistent Tower Bay selections.
 
 For a reproducible local match, add a positive integer seed to the URL, such as `?seed=12345`. Development builds expose a small `window.__CRASH_ROBOTO__` test bridge; production builds do not.
 
@@ -106,7 +109,9 @@ For a reproducible local match, add a positive integer seed to the URL, such as 
 - `src/game/bridge/` publishes immutable match snapshots and translates UI commands into engine actions.
 - `src/game/phaser/` owns the deck-aware asset manifest and renders the arena, perspective units, projectiles, impacts, and destruction effects.
 - `src/features/` contains pilot presentation, the Command Lobby, battle HUD, card presentation, progression/reward ownership, overlays, and Robot Lab.
+- `src/audio/` owns synthesized effects, music playback, and the bundled music manifest; `src/features/audio/` owns the player UI and session playlist importer.
 - `src/app/` composes the application, persists preferences/loadouts, and lazy-loads the Phaser battle bundle.
-- `public/assets/game/` contains only assets required by the shipped game. Early visual studies and the legacy flat board live in `docs/concepts/` so they are not copied into production builds.
+- `public/assets/game/` contains shipped visual assets, while `public/assets/audio/music/` contains the bundled soundtrack. Early visual studies and the legacy flat board live in `docs/concepts/` so they are not copied into production builds.
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for state ownership, runtime flow, and extension notes.
+See [`docs/AUDIO.md`](docs/AUDIO.md) for the Suno integration decision, playlist workflow, and sample-replacement plan.
