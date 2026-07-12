@@ -64,6 +64,19 @@ describe('browser storage', () => {
 });
 
 describe('lobby loadout persistence', () => {
+  it('round-trips the Best of Three mode selection', () => {
+    const storage = createMemoryStorage();
+    vi.stubGlobal('localStorage', storage);
+    const defaults = readLobbyLoadout();
+
+    saveLobbyLoadout({ ...defaults, modeId: 'best-of-three' });
+
+    expect(readLobbyLoadout()).toMatchObject({
+      modeId: 'best-of-three',
+      deck: defaults.deck,
+    });
+  });
+
   it('persists independent left and right Relay weapon packages', () => {
     const storage = createMemoryStorage();
     vi.stubGlobal('localStorage', storage);

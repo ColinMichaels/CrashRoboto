@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CARDS } from '../game/core/content';
+import { POWER_DRAIN_DURATION_MS, POWER_DRAIN_WARNING_MS } from '../game/core/MatchEngine';
 import type { GameEvent } from '../game/core/types';
 import {
   CARD_VOICE_PROFILES,
@@ -64,6 +65,63 @@ describe('sound design', () => {
     expect(getSoundCuesForEvent({
       type: 'matchEnded',
       result: { winner: 'player', reason: 'core', headline: 'Won', detail: 'Core destroyed.' },
+    })).toEqual([{ kind: 'matchEnd', winner: 'player' }]);
+  });
+
+  it('routes Power Drain startup to its dedicated full-resolution cue', () => {
+    expect(getSoundCuesForEvent({
+      type: 'powerDrainStarted',
+      warningMs: POWER_DRAIN_WARNING_MS,
+      durationMs: POWER_DRAIN_DURATION_MS,
+    })).toEqual([{
+      kind: 'powerDrain',
+      warningMs: POWER_DRAIN_WARNING_MS,
+      durationMs: POWER_DRAIN_DURATION_MS,
+    }]);
+  });
+
+  it('routes series round cues without duplicating the final match-end signal', () => {
+    const roundResult = {
+      winner: 'player',
+      reason: 'core',
+      headline: 'CORE CRASHED',
+      detail: 'Enemy command network is offline.',
+    } as const;
+
+    expect(getSoundCuesForEvent({
+      type: 'roundStarted',
+      modeId: 'best-of-three',
+      roundNumber: 1,
+      maxRounds: 3,
+    })).toEqual([]);
+    expect(getSoundCuesForEvent({
+      type: 'roundStarted',
+      modeId: 'best-of-three',
+      roundNumber: 2,
+      maxRounds: 3,
+    })).toEqual([{ kind: 'matchStart', modeId: 'best-of-three', restart: true }]);
+    expect(getSoundCuesForEvent({
+      type: 'roundEnded',
+      roundNumber: 1,
+      result: roundResult,
+      wins: { player: 1, enemy: 0 },
+      matchComplete: false,
+    })).toEqual([{ kind: 'matchEnd', winner: 'player' }]);
+    expect(getSoundCuesForEvent({
+      type: 'roundEnded',
+      roundNumber: 2,
+      result: roundResult,
+      wins: { player: 2, enemy: 0 },
+      matchComplete: true,
+    })).toEqual([]);
+    expect(getSoundCuesForEvent({
+      type: 'matchEnded',
+      result: {
+        winner: 'player',
+        reason: 'round-majority',
+        headline: 'SERIES SECURED',
+        detail: 'Final series score 2–0.',
+      },
     })).toEqual([{ kind: 'matchEnd', winner: 'player' }]);
   });
 });

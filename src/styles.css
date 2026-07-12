@@ -378,9 +378,30 @@ button:focus-visible {
   letter-spacing: 0.18em;
 }
 
+.match-clock span.series-clock-label {
+  letter-spacing: 0.08em;
+}
+
 .match-clock.is-charge-overclock time,
 .match-clock.is-charge-overclock span {
   color: var(--amber);
+}
+
+.match-clock.is-power-drain {
+  border-color: rgba(255, 200, 87, 0.58);
+  background:
+    linear-gradient(180deg, rgba(30, 18, 4, 0.98), rgba(18, 12, 7, 0.94));
+  box-shadow: 0 0 22px rgba(255, 200, 87, 0.18);
+}
+
+.match-clock.is-power-drain time,
+.match-clock.is-power-drain span {
+  color: var(--amber);
+}
+
+.match-clock.is-power-drain time {
+  font-size: clamp(0.78rem, 1.65vw, 1.7rem);
+  letter-spacing: 0.12em;
 }
 
 .guidance-toast {
@@ -1765,10 +1786,249 @@ kbd {
   font-weight: 900;
 }
 
+.final-score em {
+  color: var(--amber);
+  font-size: clamp(0.45rem, 0.72vw, 0.72rem);
+  font-style: normal;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+}
+
 .final-score > i {
   width: 1px;
   height: 45px;
   background: rgba(200, 255, 244, 0.25);
+}
+
+.power-drain-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 26;
+  display: grid;
+  place-items: center;
+  padding: 8% 18% 20%;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 47%, rgba(255, 190, 65, 0.12), transparent 35%),
+    linear-gradient(180deg, rgba(20, 10, 2, 0.38), transparent 30%, transparent 72%, rgba(22, 9, 1, 0.32));
+  color: var(--amber);
+  pointer-events: none;
+  text-align: center;
+}
+
+.power-drain-overlay::before {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    180deg,
+    transparent 0,
+    transparent 6px,
+    rgba(255, 205, 105, 0.035) 7px,
+    transparent 8px
+  );
+  content: "";
+  animation: power-drain-scan 1.6s linear infinite;
+}
+
+.power-drain-overlay::after {
+  position: absolute;
+  inset: 1.4%;
+  border: 1px solid rgba(255, 200, 87, 0.32);
+  box-shadow:
+    inset 0 0 60px rgba(255, 151, 54, 0.11),
+    0 0 28px rgba(255, 200, 87, 0.08);
+  content: "";
+  clip-path: polygon(16px 0, calc(100% - 16px) 0, 100% 16px, 100% calc(100% - 16px), calc(100% - 16px) 100%, 16px 100%, 0 calc(100% - 16px), 0 16px);
+}
+
+.power-drain-panel {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: min(700px, 72vw);
+  justify-items: center;
+  padding: clamp(12px, 1.5vw, 22px) clamp(18px, 3vw, 42px);
+  border: 1px solid rgba(255, 200, 87, 0.82);
+  background:
+    linear-gradient(100deg, rgba(18, 9, 3, 0.94), rgba(38, 21, 5, 0.97) 50%, rgba(18, 9, 3, 0.94));
+  box-shadow:
+    0 0 0 1px rgba(255, 232, 178, 0.08),
+    0 0 42px rgba(255, 175, 60, 0.22),
+    inset 0 0 30px rgba(255, 197, 87, 0.06);
+  clip-path: polygon(18px 0, calc(100% - 18px) 0, 100% 18px, 100% calc(100% - 18px), calc(100% - 18px) 100%, 18px 100%, 0 calc(100% - 18px), 0 18px);
+  animation: power-drain-arrive 420ms cubic-bezier(0.2, 0.86, 0.24, 1.08) both;
+}
+
+.power-drain-kicker {
+  color: rgba(255, 226, 158, 0.76);
+  font-size: clamp(0.42rem, 0.65vw, 0.66rem);
+  font-weight: 900;
+  letter-spacing: 0.24em;
+  text-indent: 0.24em;
+}
+
+.power-drain-panel h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.55em;
+  margin: 0;
+  color: #ffe1a1;
+  font-size: clamp(1.2rem, 2.6vw, 2.65rem);
+  font-weight: 950;
+  letter-spacing: 0.14em;
+  line-height: 1.1;
+  text-indent: 0.14em;
+  text-shadow: 0 0 22px rgba(255, 188, 61, 0.45);
+}
+
+.power-drain-panel h2 i {
+  width: clamp(22px, 4vw, 62px);
+  height: 1px;
+  background: linear-gradient(90deg, transparent, currentColor);
+  box-shadow: 0 0 8px currentColor;
+}
+
+.power-drain-panel h2 i:last-child {
+  background: linear-gradient(90deg, currentColor, transparent);
+}
+
+.power-drain-panel > p {
+  margin: 0.25em 0 0;
+  color: rgba(255, 236, 188, 0.78);
+  font-size: clamp(0.4rem, 0.62vw, 0.64rem);
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.power-drain-readout {
+  display: grid;
+  width: 100%;
+  align-items: end;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: clamp(12px, 2.2vw, 32px);
+  margin-top: clamp(10px, 1.25vw, 18px);
+}
+
+.power-drain-team {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.power-drain-team > span {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.power-drain-team small {
+  overflow: hidden;
+  color: #91cfc8;
+  font-size: clamp(0.34rem, 0.53vw, 0.54rem);
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.power-drain-team strong {
+  color: #c8fff4;
+  font-size: clamp(0.72rem, 1.2vw, 1.2rem);
+  font-variant-numeric: tabular-nums;
+}
+
+.power-drain-team.is-enemy > span {
+  flex-direction: row-reverse;
+}
+
+.power-drain-team.is-enemy small,
+.power-drain-team.is-enemy strong {
+  color: #ff9d88;
+}
+
+.power-drain-bar {
+  --tower-power: 100%;
+  height: clamp(7px, 0.8vw, 11px);
+  padding: 2px;
+  border: 1px solid rgba(159, 233, 224, 0.38);
+  background: rgba(0, 0, 0, 0.48);
+  clip-path: polygon(4px 0, 100% 0, 100% 100%, 0 100%, 0 4px);
+}
+
+.power-drain-bar i {
+  display: block;
+  width: var(--tower-power);
+  height: 100%;
+  background: linear-gradient(90deg, #176d70, #49e1d3, #cbfff4);
+  box-shadow: 0 0 12px rgba(73, 225, 211, 0.55);
+  transition: width 80ms linear;
+}
+
+.power-drain-team.is-enemy .power-drain-bar i {
+  margin-left: auto;
+  background: linear-gradient(90deg, #ffd0c7, #ff826d, #8b2d23);
+  box-shadow: 0 0 12px rgba(255, 117, 91, 0.52);
+}
+
+.power-drain-team.is-lowest .power-drain-bar {
+  border-color: rgba(255, 200, 87, 0.9);
+  box-shadow: 0 0 15px rgba(255, 177, 55, 0.2);
+}
+
+.power-drain-countdown {
+  display: grid;
+  min-width: clamp(38px, 4.2vw, 58px);
+  justify-items: center;
+  padding: 0 0.35em;
+  border-inline: 1px solid rgba(255, 200, 87, 0.28);
+}
+
+.power-drain-countdown strong {
+  color: var(--amber);
+  font-size: clamp(1rem, 1.85vw, 1.9rem);
+  font-variant-numeric: tabular-nums;
+  line-height: 0.95;
+}
+
+.power-drain-countdown small {
+  margin-top: 0.35em;
+  color: rgba(255, 222, 151, 0.64);
+  font-size: clamp(0.3rem, 0.44vw, 0.45rem);
+  font-weight: 900;
+  letter-spacing: 0.14em;
+}
+
+.power-drain-overlay.is-critical {
+  background:
+    radial-gradient(circle at 50% 47%, rgba(255, 97, 52, 0.18), transparent 38%),
+    linear-gradient(180deg, rgba(33, 6, 1, 0.5), transparent 32%, transparent 68%, rgba(33, 6, 1, 0.44));
+}
+
+.power-drain-overlay.is-critical .power-drain-panel {
+  border-color: rgba(255, 116, 75, 0.92);
+  box-shadow: 0 0 50px rgba(255, 83, 40, 0.3), inset 0 0 36px rgba(255, 75, 35, 0.08);
+  animation: power-drain-critical 520ms ease-in-out infinite alternate;
+}
+
+.power-drain-overlay.is-warning .power-drain-bar i {
+  animation: power-drain-bar-prime 420ms ease-in-out infinite alternate;
+}
+
+.power-drain-preview-button {
+  position: absolute;
+  top: 8.6%;
+  right: 2.2%;
+  z-index: 27;
+  padding: 0.6em 1em;
+  border: 1px solid rgba(255, 200, 87, 0.68);
+  background: rgba(22, 13, 5, 0.9);
+  color: var(--amber);
+  font-size: clamp(0.4rem, 0.62vw, 0.62rem);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  cursor: pointer;
 }
 
 .result-rewards {
@@ -2155,6 +2415,26 @@ kbd {
   to { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes power-drain-arrive {
+  from { opacity: 0; transform: scaleX(0.82) translateY(-8px); }
+  to { opacity: 1; transform: scaleX(1) translateY(0); }
+}
+
+@keyframes power-drain-scan {
+  from { transform: translateY(-8px); }
+  to { transform: translateY(0); }
+}
+
+@keyframes power-drain-critical {
+  from { transform: scale(1); filter: brightness(1); }
+  to { transform: scale(1.012); filter: brightness(1.16); }
+}
+
+@keyframes power-drain-bar-prime {
+  from { opacity: 0.55; }
+  to { opacity: 1; }
+}
+
 @keyframes robot-lab-in {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
@@ -2174,6 +2454,29 @@ kbd {
 
   .match-clock span {
     display: none;
+  }
+
+  .match-clock span.series-clock-label {
+    display: block;
+    font-size: clamp(0.29rem, 0.7vw, 0.4rem);
+    letter-spacing: 0.035em;
+  }
+
+  .power-drain-overlay {
+    padding: 5% 15% 17%;
+  }
+
+  .power-drain-panel {
+    width: min(660px, 74vw);
+    padding: 1.2% 3.4%;
+  }
+
+  .power-drain-panel h2 {
+    font-size: clamp(1rem, 3.2vw, 1.55rem);
+  }
+
+  .power-drain-readout {
+    margin-top: 1.2%;
   }
 
   .command-rail {

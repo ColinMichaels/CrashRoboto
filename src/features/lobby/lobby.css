@@ -624,10 +624,12 @@
 }
 
 .lobby-mode-copy span {
+  overflow: hidden;
   color: #4cd4ca;
   font-size: clamp(0.39rem, 0.78vw, 0.78rem);
   font-weight: 900;
   letter-spacing: 0.1em;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -1654,7 +1656,7 @@ button.lobby-card:hover:not(:disabled) {
 
   .lobby-mode-list {
     height: 100%;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 0.7%;
     padding: 0;
   }

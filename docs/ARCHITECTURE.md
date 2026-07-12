@@ -14,8 +14,8 @@ The Phaser runtime is isolated in its own vendor chunk and loaded only when the 
 
 ## State ownership
 
-- `MatchEngine`: decks, shuffled queues, charge, the configured Firmware baseline, battle upgrades, units, installations, zones, towers, timers, scoring, and results.
-- `GameBridge`: subscriptions, command forwarding, and fixed-step frame advancement.
+- `MatchEngine`: decks, shuffled queues, charge, the configured Firmware baseline, battle upgrades, units, installations, zones, towers, timers, round and series scoring, Tower Damage, independent-tower Power Drain, and results.
+- `GameBridge`: subscriptions, command forwarding, accumulator resets at round boundaries, and fixed-step frame advancement through both active combat and endgame resolution.
 - React: lobby draft, stored preferences, selected Robot Lab/card-intel panel, music-player presentation, drag origin, and modal focus.
 - `useMatchRewards`: persistent player progress, card collection, once-per-match reward claims, and immutable Victory Cache reveals.
 - `BattleScene`: visual objects keyed to engine entity IDs; it never decides combat outcomes.
@@ -24,7 +24,11 @@ The Phaser runtime is isolated in its own vendor chunk and loaded only when the 
 
 Loadout persistence stores the selected pilot and protocol independently from the last valid eight-card deck. Removing a card can therefore create a temporary lobby draft without erasing the last playable loadout. Firmware allocations are validated against the active robot cards and the six-point budget before they are persisted or accepted by the match engine. Card collection persistence is a separate normalized record: starter cards can never be relocked by partial or corrupt data, while Vault fragments and Mastery levels can evolve without changing the loadout schema.
 
-Victory Cache generation lives outside `MatchEngine`. Match simulation stays seeded and replayable; `useMatchRewards` claims a win reward once per ended revision, applies it to the collection immediately, saves it, and then presents the immutable before/after reveal. The animation can therefore be closed or interrupted without losing or rerolling the reward.
+Victory Cache generation lives outside `MatchEngine`. Match simulation stays seeded and replayable; `useMatchRewards` ignores round intermissions and claims a win reward once per final ended revision, applies it to the collection immediately, saves it, and then presents the immutable before/after reveal. The animation can therefore be closed or interrupted without losing or rerolling the reward.
+
+Timer resolution remains inside `MatchEngine`. A final combat step may still produce an immediate Core or Relay-Rush victory. Otherwise destroyed Relay count has priority; equal counts freeze combat and enter a `resolving` phase. After a 1.5-second warning, every surviving Relay and Core drains independently at the same percentage rate calibrated so the lowest starting tower-power percentage reaches zero after eight visible seconds. Neutral drain does not award Relay/Core destruction points. Exact tower-power equality compares whole-number Tower Damage, pre-victory Battle Score, and then a fixed-salt hash of the match seed, preserving replay determinism while preventing draws.
+
+Best of Three wraps that same no-draw resolution in a first-to-two series. The current round's Data Points, Battle Score, Tower Damage, battlefield, Charge, cards, and battle upgrades remain round-local. A non-clinching result enters the non-ticking `round-ended` intermission; an explicit next-round command resets combat state with a deterministic round-specific seed while preserving round wins and aggregate series Battle Score. Only the clinching round enters `ended`, emits the final match result, awards the one-time victory bonus, and becomes eligible for XP or Victory Caches.
 
 ## Presentation assets
 

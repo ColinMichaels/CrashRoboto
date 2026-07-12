@@ -76,6 +76,7 @@ const MODE_META: Record<GameModeId, string> = {
   'core-siege': 'BALANCED',
   'turbo-grid': 'HIGH CHARGE',
   'relay-rush': 'FIRST TO 2',
+  'best-of-three': 'FIRST TO 2',
 };
 
 const LOBBY_CARDS = Object.values(CARDS);
@@ -84,6 +85,12 @@ const RELAY_LANES: Lane[] = ['left', 'right'];
 function formatDuration(durationMs: number): string {
   const seconds = Math.round(durationMs / 1_000);
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+function formatModeDuration(modeId: GameModeId): string {
+  const mode = GAME_MODES[modeId];
+  const duration = formatDuration(mode.durationMs);
+  return mode.series ? `${mode.series.maxRounds} × ${duration}` : duration;
 }
 
 function LogoMark() {
@@ -122,6 +129,17 @@ function ModeIcon({ mode }: { mode: GameModeId }) {
     return (
       <svg viewBox="0 0 48 48" aria-hidden="true">
         <path d="M14 43V7m1 2c10-7 13 7 23 0v20c-10 7-13-7-23 0" />
+      </svg>
+    );
+  }
+
+  if (mode === 'best-of-three') {
+    return (
+      <svg viewBox="0 0 48 48" aria-hidden="true">
+        <circle cx="13" cy="24" r="6" />
+        <circle cx="24" cy="13" r="6" />
+        <circle cx="35" cy="24" r="6" />
+        <path d="M13 30v8h22v-8M24 19v19" />
       </svg>
     );
   }
@@ -523,6 +541,7 @@ export function Lobby({
           {GAME_MODE_IDS.map((modeId, index) => {
             const mode = GAME_MODES[modeId];
             const selected = selectedMode === modeId;
+            const durationLabel = formatModeDuration(modeId);
             return (
               <button
                 key={modeId}
@@ -531,14 +550,14 @@ export function Lobby({
                 role="radio"
                 aria-checked={selected}
                 tabIndex={selected ? 0 : -1}
-                aria-label={`${mode.name}. ${formatDuration(mode.durationMs)}. ${MODE_META[modeId]}. ${mode.description}`}
+                aria-label={`${mode.name}. ${durationLabel}. ${MODE_META[modeId]}. ${mode.description}`}
                 onClick={() => chooseMode(modeId)}
                 onKeyDown={(event) => navigateModes(event, index)}
               >
                 <span className="lobby-mode-icon"><ModeIcon mode={modeId} /></span>
                 <span className="lobby-mode-copy">
                   <strong>{mode.name}</strong>
-                  <span>{formatDuration(mode.durationMs)} <i>•</i> {MODE_META[modeId]}</span>
+                  <span>{durationLabel} <i>•</i> {MODE_META[modeId]}</span>
                 </span>
                 <span className="lobby-mode-chevron" aria-hidden="true">
                   <svg viewBox="0 0 18 30"><path d="m3 3 11 12L3 27" /></svg>

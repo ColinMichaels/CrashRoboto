@@ -137,7 +137,7 @@ export function normalizeTowerWeapons(value: unknown): TowerWeaponLoadout | null
   return { left: candidate.left, right: candidate.right };
 }
 
-export const GAME_MODE_IDS: GameModeId[] = ['core-siege', 'turbo-grid', 'relay-rush'];
+export const GAME_MODE_IDS: GameModeId[] = ['core-siege', 'turbo-grid', 'relay-rush', 'best-of-three'];
 export const DEFAULT_GAME_MODE_ID: GameModeId = 'core-siege';
 export const GAME_MODES: Record<GameModeId, GameModeDefinition> = {
   'core-siege': {
@@ -173,6 +173,21 @@ export const GAME_MODES: Record<GameModeId, GameModeDefinition> = {
     overclockThresholdMs: 45_000,
     relayHpMultiplier: 0.72,
     relayScoreLimit: 2,
+  },
+  'best-of-three': {
+    id: 'best-of-three',
+    name: 'Best of Three',
+    shortName: 'BEST OF 3',
+    description: 'A three-round Core Siege series. Each round lasts three minutes; first to two round wins takes the match.',
+    durationMs: 180_000,
+    startingCharge: 5,
+    chargeRegenPerSecond: 0.4,
+    overclockThresholdMs: 60_000,
+    relayHpMultiplier: 1,
+    series: {
+      maxRounds: 3,
+      winsRequired: 2,
+    },
   },
 };
 

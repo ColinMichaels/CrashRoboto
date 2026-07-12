@@ -33,7 +33,8 @@ export function useMatchRewards(snapshot: MatchSnapshot) {
     ) return;
 
     awardedMatchRevisionRef.current = snapshot.revision;
-    const award = getMatchProgressAward(snapshot.battleScore, snapshot.result);
+    const rewardBattleScore = snapshot.series?.battleScore ?? snapshot.battleScore;
+    const award = getMatchProgressAward(rewardBattleScore, snapshot.result);
     const nextProgress = {
       xp: playerProgress.xp + award.xp,
       matches: playerProgress.matches + 1,
@@ -59,6 +60,7 @@ export function useMatchRewards(snapshot: MatchSnapshot) {
     snapshot.phase,
     snapshot.result,
     snapshot.revision,
+    snapshot.series,
   ]);
 
   return {

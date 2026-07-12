@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { POWER_DRAIN_DURATION_MS, POWER_DRAIN_WARNING_MS } from '../game/core/MatchEngine';
 import type { GameEvent } from '../game/core/types';
 import { SoundEngine } from './SoundEngine';
 
@@ -188,6 +189,11 @@ describe('SoundEngine', () => {
   it('renders every high-value event family through browser-safe Web Audio nodes', () => {
     const events: GameEvent[] = [
       { type: 'matchStarted', modeId: 'core-siege', restart: false },
+      {
+        type: 'powerDrainStarted',
+        warningMs: POWER_DRAIN_WARNING_MS,
+        durationMs: POWER_DRAIN_DURATION_MS,
+      },
       { type: 'cardSelected', team: 'player', cardId: 'swarm' },
       { type: 'cardPlayed', team: 'player', cardId: 'brute', x: 100, y: 500 },
       { type: 'playRejected', team: 'player', reason: 'charge' },
@@ -219,6 +225,17 @@ describe('SoundEngine', () => {
       const context = renderEvent(event);
       expect(context.oscillatorCount + context.noiseCount, event.type).toBeGreaterThan(0);
     }
+  });
+
+  it('renders the full Power Drain warning and countdown sound bed', () => {
+    const context = renderEvent({
+      type: 'powerDrainStarted',
+      warningMs: POWER_DRAIN_WARNING_MS,
+      durationMs: POWER_DRAIN_DURATION_MS,
+    });
+
+    expect(context.noiseCount).toBe(1);
+    expect(context.oscillatorCount).toBe(12);
   });
 
   it('renders all card identities and suppresses new nodes immediately while muted', () => {

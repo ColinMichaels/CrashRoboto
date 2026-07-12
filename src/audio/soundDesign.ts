@@ -42,6 +42,7 @@ export const CARD_VOICE_PROFILES = {
 
 export type SoundCue =
   | { kind: 'matchStart'; modeId: GameModeId; restart: boolean }
+  | { kind: 'powerDrain'; warningMs: number; durationMs: number }
   | { kind: 'cardVoice'; cardId: CardId; variant: 'selected' | 'deployed'; team: Team }
   | { kind: 'reject' }
   | { kind: 'program'; program: ProgramKind; team: Team }
@@ -50,7 +51,7 @@ export type SoundCue =
   | { kind: 'overdrive'; team: Team }
   | { kind: 'upgrade'; team: Team; tier: 1 | 2 }
   | { kind: 'weapon'; projectile: ProjectileKind; team: Team; attackId: number; impactDelay: number }
-  | { kind: 'destruction'; size: 'unit' | 'installation'; team: Team; cause: 'projectile' | 'program' | 'decay' }
+  | { kind: 'destruction'; size: 'unit' | 'installation'; team: Team; cause: 'projectile' | 'program' | 'decay' | 'power-drain' }
   | { kind: 'tower'; towerKind: TowerKind; team: Team }
   | { kind: 'matchEnd'; winner: Team | 'draw' };
 
@@ -69,6 +70,14 @@ export function getSoundCuesForEvent(event: GameEvent): SoundCue[] {
   switch (event.type) {
     case 'matchStarted':
       return [{ kind: 'matchStart', modeId: event.modeId, restart: event.restart }];
+    case 'roundStarted':
+      return event.roundNumber === 1
+        ? []
+        : [{ kind: 'matchStart', modeId: event.modeId, restart: true }];
+    case 'powerDrainStarted':
+      return [{ kind: 'powerDrain', warningMs: event.warningMs, durationMs: event.durationMs }];
+    case 'roundEnded':
+      return event.matchComplete ? [] : [{ kind: 'matchEnd', winner: event.result.winner }];
     case 'cardSelected':
       return [{ kind: 'cardVoice', cardId: event.cardId, variant: 'selected', team: event.team }];
     case 'cardPlayed': {

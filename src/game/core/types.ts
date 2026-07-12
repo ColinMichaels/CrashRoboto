@@ -1,8 +1,8 @@
 export type Team = 'player' | 'enemy';
 export type Lane = 'left' | 'right';
-export type MatchPhase = 'menu' | 'playing' | 'paused' | 'ended';
+export type MatchPhase = 'menu' | 'playing' | 'paused' | 'resolving' | 'round-ended' | 'ended';
 export type MatchStage = 'opening' | 'relay-war' | 'core-surge';
-export type GameModeId = 'core-siege' | 'turbo-grid' | 'relay-rush';
+export type GameModeId = 'core-siege' | 'turbo-grid' | 'relay-rush' | 'best-of-three';
 
 export type TechClass = 'standard' | 'advanced' | 'prototype' | 'exotic' | 'commander';
 export type CardCategory = 'unit' | 'program' | 'installation' | 'commander';
@@ -51,6 +51,10 @@ export interface GameModeDefinition {
   overclockThresholdMs: number;
   relayHpMultiplier: number;
   relayScoreLimit?: number;
+  series?: {
+    maxRounds: number;
+    winsRequired: number;
+  };
 }
 
 export interface MatchConfig {
@@ -255,9 +259,24 @@ export interface CommanderAbilityState {
 
 export interface MatchResult {
   winner: Team | 'draw';
-  reason: 'core' | 'relay' | 'timer' | 'integrity';
+  reason: 'core' | 'relay' | 'timer' | 'integrity' | 'power-drain' | 'round-majority';
   headline: string;
   detail: string;
+}
+
+export interface MatchSeriesState {
+  currentRound: number;
+  maxRounds: number;
+  winsRequired: number;
+  wins: Record<Team, number>;
+  battleScore: Record<Team, number>;
+  roundResult: MatchResult | null;
+}
+
+export interface PowerDrainState {
+  stage: 'warning' | 'draining' | 'critical';
+  remainingMs: number;
+  progress: number;
 }
 
 export interface MatchSnapshot {
@@ -270,6 +289,7 @@ export interface MatchSnapshot {
   charge: Record<Team, number>;
   score: Record<Team, number>;
   battleScore: Record<Team, number>;
+  towerDamage: Record<Team, number>;
   towers: TowerState[];
   units: UnitState[];
   installations: InstallationState[];
@@ -280,6 +300,8 @@ export interface MatchSnapshot {
   commander: Record<Team, CommanderAbilityState>;
   upgrades: RobotUpgradeBook;
   cardLevels: CardLevelBook;
+  series: MatchSeriesState | null;
+  powerDrain: PowerDrainState | null;
   result: MatchResult | null;
   guidance: string | null;
   revision: number;
@@ -288,6 +310,7 @@ export interface MatchSnapshot {
 export type GameCommand =
   | { type: 'start'; config?: MatchConfig }
   | { type: 'restart' }
+  | { type: 'nextRound' }
   | { type: 'returnToLobby' }
   | { type: 'togglePause' }
   | { type: 'select'; cardId: CardId | null }
@@ -297,6 +320,15 @@ export type GameCommand =
 
 export type GameEvent =
   | { type: 'matchStarted'; modeId: GameModeId; restart: boolean }
+  | { type: 'roundStarted'; modeId: GameModeId; roundNumber: number; maxRounds: number }
+  | { type: 'powerDrainStarted'; warningMs: number; durationMs: number }
+  | {
+      type: 'roundEnded';
+      roundNumber: number;
+      result: MatchResult;
+      wins: Record<Team, number>;
+      matchComplete: boolean;
+    }
   | { type: 'cardSelected'; team: 'player'; cardId: CardId }
   | { type: 'cardPlayed'; team: Team; cardId: CardId; x: number; y: number }
   | { type: 'playRejected'; team: Team; reason: 'phase' | 'charge' | 'hand' | 'zone' | 'unique' | 'disabled' | 'cooldown' }
@@ -327,7 +359,7 @@ export type GameEvent =
   | {
       type: 'entityDestroyed';
       entity: CombatEntityRef;
-      cause: 'projectile' | 'program' | 'decay';
+      cause: 'projectile' | 'program' | 'decay' | 'power-drain';
       byTeam?: Team;
       attackId?: number;
     }

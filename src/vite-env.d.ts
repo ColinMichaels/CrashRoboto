@@ -9,6 +9,7 @@ declare global {
       dispatch: (command: GameCommand) => boolean;
       advance: (ms: number) => void;
       damageTower: (id: string, amount: number) => void;
+      expireTimer: () => void;
     };
   }
 }

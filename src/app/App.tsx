@@ -55,6 +55,8 @@ const MUSIC_VOLUME_STORAGE_KEY = 'crash-roboto-music-volume';
 const SFX_VOLUME_STORAGE_KEY = 'crash-roboto-sfx-volume';
 const TUTORIAL_STORAGE_KEY = 'crash-roboto-tutorial-complete';
 const BUNDLED_MUSIC_PLAYLIST = getBundledMusicPlaylist();
+const POWER_DRAIN_PREVIEW_ENABLED = import.meta.env.DEV &&
+  new URLSearchParams(window.location.search).get('preview') === 'power-drain';
 
 function readMutePreference(key: string): boolean {
   const stored = readStorageItem(key);
@@ -129,7 +131,10 @@ export function App() {
 
   const toggleMusicMute = useCallback(() => {
     const phase = snapshotRef.current.phase;
-    if (musicMuted && (phase === 'playing' || phase === 'paused')) void music.play();
+    if (
+      musicMuted &&
+      (phase === 'playing' || phase === 'paused' || phase === 'resolving' || phase === 'round-ended')
+    ) void music.play();
     setMusicMuted((current) => !current);
   }, [music, musicMuted]);
 
@@ -278,6 +283,18 @@ export function App() {
     dispatch({ type: 'restart' });
   }, [clearMatchRewards, dispatch]);
 
+  const nextRound = useCallback(() => {
+    dragOriginRef.current = null;
+    setInspectedRobot(null);
+    dispatch({ type: 'nextRound' });
+  }, [dispatch]);
+
+  const previewPowerDrain = useCallback(() => {
+    bridge.debugDamageTower('enemy-left', 900);
+    bridge.debugDamageTower('player-left', 450);
+    bridge.debugExpireTimer();
+  }, [bridge]);
+
   const togglePause = useCallback(() => {
     dragOriginRef.current = null;
     setInspectedRobot(null);
@@ -382,7 +399,10 @@ export function App() {
       } else if (event.key === 'Escape') {
         if (inspectedRobotRef.current) closeRobotStats();
         else dispatch({ type: 'select', cardId: null });
-      } else if (event.key.toLowerCase() === 'p' && currentSnapshot.phase !== 'menu' && currentSnapshot.phase !== 'ended') {
+      } else if (
+        event.key.toLowerCase() === 'p' &&
+        (currentSnapshot.phase === 'playing' || currentSnapshot.phase === 'paused')
+      ) {
         togglePause();
       } else if (event.key.toLowerCase() === 'm') {
         if (event.shiftKey) toggleSfxMute();
@@ -402,6 +422,7 @@ export function App() {
       dispatch: (command) => bridge.dispatch(command),
       advance: (ms) => bridge.advanceForTest(ms),
       damageTower: (id, amount) => bridge.debugDamageTower(id, amount),
+      expireTimer: () => bridge.debugExpireTimer(),
     };
     return () => { delete window.__CRASH_ROBOTO__; };
   }, [bridge]);
@@ -473,6 +494,7 @@ export function App() {
               pilotId={lobbyLoadout.pilotId}
               onRestart={restartMatch}
               onResume={togglePause}
+              onNextRound={nextRound}
               onReturnToLobby={returnToLobby}
               progressAward={lastProgressAward}
               cacheReward={lastCacheReward}
@@ -488,6 +510,16 @@ export function App() {
           onVolumeChange={changeMusicVolume}
           onSfxVolumeChange={changeSfxVolume}
         />
+        {POWER_DRAIN_PREVIEW_ENABLED && snapshot.phase === 'playing' && (
+          <button
+            className="power-drain-preview-button"
+            type="button"
+            onClick={previewPowerDrain}
+            data-testid="power-drain-preview"
+          >
+            PREVIEW POWER DRAIN
+          </button>
+        )}
         {tutorialStep && (
           <TutorialCoach step={tutorialStep} onSkip={stopTutorial} onComplete={finishTutorial} />
         )}

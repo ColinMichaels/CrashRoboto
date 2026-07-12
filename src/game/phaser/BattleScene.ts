@@ -100,6 +100,7 @@ export class BattleScene extends Scene {
   private placementText!: GameObjects.Text;
   private latestPointer = { x: 800, y: 500 };
   private previousPhase: MatchSnapshot['phase'] | null = null;
+  private previousRound = 1;
   private previousRemainingMs = 0;
   private previousSnapshotRevision = -1;
   private unsubscribeEvents?: () => void;
@@ -198,14 +199,18 @@ export class BattleScene extends Scene {
   private syncPresentation(): void {
     const snapshot = this.bridge.getSnapshot();
     const snapshotChanged = snapshot.revision !== this.previousSnapshotRevision;
+    const currentRound = snapshot.series?.currentRound ?? 1;
     const startingFreshMatch =
       snapshot.phase === 'playing' &&
       this.previousPhase !== null &&
       (this.previousPhase === 'menu' ||
+        this.previousPhase === 'round-ended' ||
         this.previousPhase === 'ended' ||
+        currentRound !== this.previousRound ||
         snapshot.remainingMs > this.previousRemainingMs + 1_000);
     if (startingFreshMatch) this.clearCombatVfx();
     this.previousPhase = snapshot.phase;
+    this.previousRound = currentRound;
     this.previousRemainingMs = snapshot.remainingMs;
 
     // Units, active zones, and disabled installations have frame-driven motion or flicker.
@@ -228,7 +233,7 @@ export class BattleScene extends Scene {
         }
       }
 
-      for (const tower of snapshot.towers) this.syncTower(tower);
+      for (const tower of snapshot.towers) this.syncTower(tower, snapshot.phase);
       for (const [id, sprite] of this.towerSprites) {
         if (!towerIds.has(id)) {
           sprite.destroy();
@@ -253,7 +258,7 @@ export class BattleScene extends Scene {
         }
       }
 
-      this.drawHealth(snapshot.units, snapshot.towers, snapshot.installations);
+      this.drawHealth(snapshot.units, snapshot.towers, snapshot.installations, snapshot.phase);
       this.drawDeployZone(snapshot);
       this.updateGhost();
       this.previousSnapshotRevision = snapshot.revision;
@@ -377,7 +382,7 @@ export class BattleScene extends Scene {
     this.unitMotion.delete(id);
   }
 
-  private syncTower(tower: TowerState): void {
+  private syncTower(tower: TowerState, phase: MatchSnapshot['phase']): void {
     let sprite = this.towerSprites.get(tower.id);
     const core = tower.kind === 'core';
     const texture = core ? 'tower-sprites' : 'relay-weapon-sprites';
@@ -397,6 +402,11 @@ export class BattleScene extends Scene {
     sprite.setDepth(3 + tower.y / 1000);
     if (tower.hp <= 0 && !this.pendingDeathIds.has(tower.id)) {
       sprite.setAlpha(0.18).setTint(0x25343a);
+    } else if (phase === 'resolving') {
+      const pulse = 0.82 + Math.sin(this.time.now / 115 + tower.x * 0.01) * 0.12;
+      sprite
+        .setAlpha(pulse)
+        .setTint(tower.team === 'player' ? 0xffd475 : 0xff6f57);
     } else {
       sprite.clearTint().setAlpha(1);
       if (!core && tower.team === 'enemy') sprite.setTint(0xff846f);
@@ -480,6 +490,27 @@ export class BattleScene extends Scene {
 
   private drawStatus(snapshot: MatchSnapshot): void {
     this.statusLayer.clear();
+    if (snapshot.phase === 'resolving') {
+      const pulse = 0.5 + Math.sin(this.time.now / 130) * 0.5;
+      for (const tower of snapshot.towers) {
+        if (tower.hp <= 0) continue;
+        const scale = getPerspectiveScale(tower.y);
+        const baseRadius = (tower.kind === 'core' ? 82 : 60) * scale;
+        const ratio = tower.hp / tower.maxHp;
+        const color = ratio <= 0.25
+          ? 0xff5e43
+          : tower.team === 'player'
+            ? 0xffcf65
+            : 0xff725b;
+        this.statusLayer
+          .fillStyle(color, 0.018 + pulse * 0.026)
+          .fillCircle(tower.x, tower.y, baseRadius * 1.2)
+          .lineStyle(3, color, 0.42 + pulse * 0.42)
+          .strokeCircle(tower.x, tower.y, baseRadius * (1.04 + pulse * 0.05))
+          .lineStyle(1, 0xffe6a6, 0.2 + pulse * 0.28)
+          .strokeCircle(tower.x, tower.y, baseRadius * (1.24 + pulse * 0.08));
+      }
+    }
     const activeCommanders = snapshot.units.filter((unit) => unit.kind === 'vector' && unit.hp > 0 && unit.overdriveMs > 0);
 
     for (const commander of activeCommanders) {
@@ -551,7 +582,12 @@ export class BattleScene extends Scene {
       .lineBetween(x + radius * 0.35, y - radius * 0.35, x - radius * 0.35, y + radius * 0.35);
   }
 
-  private drawHealth(units: UnitState[], towers: TowerState[], installations: InstallationState[]): void {
+  private drawHealth(
+    units: UnitState[],
+    towers: TowerState[],
+    installations: InstallationState[],
+    phase: MatchSnapshot['phase'],
+  ): void {
     this.healthLayer.clear();
     for (const tower of towers) {
       if (tower.hp <= 0) continue;
@@ -566,6 +602,7 @@ export class BattleScene extends Scene {
         width,
         tower.hp / tower.maxHp,
         tower.team,
+        phase === 'resolving',
       );
     }
     for (const unit of units) {
@@ -602,11 +639,26 @@ export class BattleScene extends Scene {
     }
   }
 
-  private drawHealthBar(x: number, y: number, width: number, ratio: number, team: Team): void {
-    this.healthLayer.fillStyle(0x061014, 0.88).fillRoundedRect(x - 2, y - 2, width + 4, 9, 4);
+  private drawHealthBar(
+    x: number,
+    y: number,
+    width: number,
+    ratio: number,
+    team: Team,
+    powerDrain = false,
+  ): void {
+    const height = powerDrain ? 8 : 5;
+    this.healthLayer
+      .fillStyle(0x061014, 0.92)
+      .fillRoundedRect(x - 3, y - 3, width + 6, height + 6, 5);
+    if (powerDrain) {
+      this.healthLayer
+        .lineStyle(2, ratio <= 0.25 ? 0xff5e43 : 0xffc857, 0.92)
+        .strokeRoundedRect(x - 3, y - 3, width + 6, height + 6, 5);
+    }
     this.healthLayer
       .fillStyle(team === 'player' ? PLAYER_COLOR : ENEMY_COLOR, 1)
-      .fillRoundedRect(x, y, Math.max(0, width * Math.min(1, ratio)), 5, 2);
+      .fillRoundedRect(x, y, Math.max(0, width * Math.min(1, ratio)), height, 3);
   }
 
   private drawShieldBar(x: number, y: number, width: number, ratio: number): void {

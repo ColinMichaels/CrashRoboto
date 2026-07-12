@@ -201,6 +201,9 @@ export class SoundEngine {
       case 'matchStart':
         this.playMatchStart(cue);
         return;
+      case 'powerDrain':
+        this.playPowerDrain(cue);
+        return;
       case 'cardVoice':
         this.playRobotVoice(cue.cardId, cue.variant, cue.team);
         return;
@@ -263,6 +266,43 @@ export class SoundEngine {
         filter: { type: 'bandpass', frequency: 880 + index * 250, q: 2.4 },
       });
     });
+  }
+
+  private playPowerDrain(cue: Extract<SoundCue, { kind: 'powerDrain' }>): void {
+    const sound = this.beginSound('power-drain', 3, 'critical', 0.8);
+    if (!sound) return;
+    const warningSeconds = cue.warningMs / 1_000;
+    const totalSeconds = (cue.warningMs + cue.durationMs) / 1_000;
+    this.addNoise(sound, totalSeconds, {
+      volume: 0.028,
+      seed: 149,
+      playbackRate: 0.38,
+      filter: { type: 'bandpass', frequency: 180, endFrequency: 760, q: 0.9 },
+    });
+    this.addTone(sound, 72, totalSeconds, {
+      type: 'sawtooth',
+      volume: 0.034,
+      endHz: 34,
+      attack: 0.16,
+      filter: { type: 'lowpass', frequency: 520, endFrequency: 180, q: 0.8 },
+    });
+    [0, 1, 2].forEach((index) => {
+      this.addTone(sound, 310 - index * 58, 0.22, {
+        delay: 0.12 + index * Math.max(0.28, warningSeconds / 3),
+        type: 'square',
+        volume: 0.052,
+        endHz: 155 - index * 22,
+        filter: { type: 'bandpass', frequency: 980 - index * 140, q: 2.2 },
+      });
+    });
+    for (let index = 0; index < 8; index += 1) {
+      this.addTone(sound, 146 + index * 11, 0.16, {
+        delay: warningSeconds + index * (cue.durationMs / 1_000 / 8),
+        type: 'square',
+        volume: 0.024 + index * 0.002,
+        endHz: 92 + index * 7,
+      });
+    }
   }
 
   private playRobotVoice(cardId: CardId, variant: 'selected' | 'deployed', team: Team): void {
@@ -466,7 +506,11 @@ export class SoundEngine {
     });
   }
 
-  private playDestruction(size: 'unit' | 'installation', team: Team, cause: 'projectile' | 'program' | 'decay'): void {
+  private playDestruction(
+    size: 'unit' | 'installation',
+    team: Team,
+    cause: 'projectile' | 'program' | 'decay' | 'power-drain',
+  ): void {
     const sound = this.beginSound(`destruction:${size}`, 1, 'combat', 0.065);
     if (!sound) return;
     const large = size === 'installation';
