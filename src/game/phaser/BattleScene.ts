@@ -7,8 +7,15 @@ import {
   INSTALLATIONS,
   OVERDRIVE_AURA_RADIUS,
   PROGRAMS,
+  TOWER_WEAPONS,
   getPerspectiveScale,
 } from '../core/content';
+import {
+  getDeploymentZones,
+  isDeploymentPoint,
+  isProgramTargetPoint,
+  PROGRAM_TARGET_ZONE,
+} from '../core/deployment';
 import type {
   CardDefinition,
   CardId,
@@ -113,7 +120,7 @@ export class BattleScene extends Scene {
 
   preload(): void {
     const base = import.meta.env.BASE_URL;
-    this.load.image('arena-board', `${base}assets/game/arena-board-perspective.png`);
+    this.load.image('arena-board', `${base}assets/game/arena-board-long.png`);
     this.load.spritesheet('robot-sprites', `${base}assets/game/robot-sprites.png`, {
       frameWidth: 443,
       frameHeight: 443,
@@ -123,6 +130,11 @@ export class BattleScene extends Scene {
       frameWidth: 627,
       frameHeight: 627,
       endFrame: 3,
+    });
+    this.load.spritesheet('relay-weapon-sprites', `${base}assets/game/relay-weapon-sprites.png`, {
+      frameWidth: 512,
+      frameHeight: 512,
+      endFrame: 2,
     });
     this.load.spritesheet('system-sprites', `${base}assets/game/system-sprites.png`, {
       frameWidth: 512,
@@ -251,7 +263,7 @@ export class BattleScene extends Scene {
 
     this.drawStatus(snapshot);
     this.drawHealth(snapshot.units, snapshot.towers, snapshot.installations);
-    this.drawDeployZone(snapshot.selected, snapshot.phase === 'playing');
+    this.drawDeployZone(snapshot);
     this.updateGhost();
   }
 
@@ -360,14 +372,19 @@ export class BattleScene extends Scene {
 
   private syncTower(tower: TowerState): void {
     let sprite = this.towerSprites.get(tower.id);
-    const frame = tower.team === 'player' ? (tower.kind === 'core' ? 1 : 0) : tower.kind === 'core' ? 3 : 2;
+    const core = tower.kind === 'core';
+    const texture = core ? 'tower-sprites' : 'relay-weapon-sprites';
+    const frame = core
+      ? tower.team === 'player' ? 1 : 3
+      : TOWER_WEAPONS[tower.weapon].frame;
     const size = (tower.kind === 'core' ? 238 : 182) * getPerspectiveScale(tower.y);
     if (!sprite) {
       sprite = this.add
-        .image(tower.x, tower.y, 'tower-sprites', frame)
+        .image(tower.x, tower.y, texture, frame)
         .setDisplaySize(size, size);
       this.towerSprites.set(tower.id, sprite);
     }
+    sprite.setTexture(texture, frame);
     sprite.setPosition(tower.x, tower.y);
     sprite.setDisplaySize(size, size);
     sprite.setDepth(3 + tower.y / 1000);
@@ -375,6 +392,7 @@ export class BattleScene extends Scene {
       sprite.setAlpha(0.18).setTint(0x25343a);
     } else {
       sprite.clearTint().setAlpha(1);
+      if (!core && tower.team === 'enemy') sprite.setTint(0xff846f);
     }
   }
 
@@ -558,27 +576,41 @@ export class BattleScene extends Scene {
       .fillRoundedRect(x, y, Math.max(0, width * Math.min(1, ratio)), 3, 1);
   }
 
-  private drawDeployZone(selected: CardId | null, active: boolean): void {
+  private drawDeployZone(snapshot: MatchSnapshot): void {
     this.deployLayer.clear();
-    if (!selected || !active) return;
-    const card = CARDS[selected];
+    if (!snapshot.selected || snapshot.phase !== 'playing') return;
+    const card = CARDS[snapshot.selected];
     const color = this.cardColor(card, 'player');
     if (card.category === 'program') {
-      this.deployLayer
-        .fillStyle(color, 0.025)
-        .fillRect(70, 55, 1460, 595)
-        .lineStyle(2, color, 0.5)
-        .strokeRect(70, 55, 1460, 595)
-        .lineStyle(1, color, 0.12)
-        .lineBetween(800, 55, 800, 650);
+      const first = PROGRAM_TARGET_ZONE[0];
+      this.deployLayer.fillStyle(color, 0.025).beginPath().moveTo(first.x, first.y);
+      for (const point of PROGRAM_TARGET_ZONE.slice(1)) this.deployLayer.lineTo(point.x, point.y);
+      this.deployLayer.closePath().fillPath();
+      this.deployLayer.lineStyle(2, color, 0.5).beginPath().moveTo(first.x, first.y);
+      for (const point of PROGRAM_TARGET_ZONE.slice(1)) this.deployLayer.lineTo(point.x, point.y);
+      this.deployLayer.closePath().strokePath();
+      this.deployLayer.lineStyle(1, color, 0.12).lineBetween(800, 55, 800, 650);
       return;
     }
 
-    this.deployLayer.fillStyle(color, 0.055).beginPath();
-    this.deployLayer.moveTo(310, 360).lineTo(1290, 360).lineTo(1390, 630).lineTo(210, 630).closePath().fillPath();
-    this.deployLayer.lineStyle(2, color, 0.58).beginPath();
-    this.deployLayer.moveTo(310, 360).lineTo(1290, 360).lineTo(1390, 630).lineTo(210, 630).closePath().strokePath();
-    this.deployLayer.lineStyle(1, color, 0.2).lineBetween(800, 370, 800, 620);
+    for (const zone of getDeploymentZones('player', snapshot.towers)) {
+      const first = zone.points[0];
+      this.deployLayer.fillStyle(color, zone.kind === 'breach' ? 0.095 : 0.055).beginPath();
+      this.deployLayer.moveTo(first.x, first.y);
+      for (const point of zone.points.slice(1)) this.deployLayer.lineTo(point.x, point.y);
+      this.deployLayer.closePath().fillPath();
+
+      if (zone.kind === 'breach') {
+        this.deployLayer.lineStyle(5, color, 0.16).beginPath();
+        this.deployLayer.moveTo(first.x, first.y);
+        for (const point of zone.points.slice(1)) this.deployLayer.lineTo(point.x, point.y);
+        this.deployLayer.closePath().strokePath();
+      }
+      this.deployLayer.lineStyle(2, color, zone.kind === 'breach' ? 0.78 : 0.58).beginPath();
+      this.deployLayer.moveTo(first.x, first.y);
+      for (const point of zone.points.slice(1)) this.deployLayer.lineTo(point.x, point.y);
+      this.deployLayer.closePath().strokePath();
+    }
   }
 
   private updateGhost(): void {
@@ -646,15 +678,15 @@ export class BattleScene extends Scene {
     const card = CARDS[cardId];
     if (snapshot.charge.player + 0.001 < card.cost) return false;
     if (card.category === 'commander' && snapshot.commander.player.deployed) return false;
-    if (card.category === 'program') return x >= 70 && x <= 1530 && y >= 55 && y <= 650;
-    if (y < 360 || y > 630 || x < 225 || x > 1375) return false;
+    if (card.category === 'program') return isProgramTargetPoint(x, y);
+    if (!isDeploymentPoint('player', x, y, snapshot.towers)) return false;
     const blockedByTower = snapshot.towers.some(
-      (tower) => tower.team === 'player' && tower.hp > 0 && Math.hypot(tower.x - x, tower.y - y) < (tower.kind === 'core' ? 112 : 88),
+      (tower) => tower.hp > 0 && Math.hypot(tower.x - x, tower.y - y) < (tower.kind === 'core' ? 112 : 88),
     );
     if (blockedByTower) return false;
     if (card.category !== 'installation') return true;
     return !snapshot.installations.some(
-      (installation) => installation.team === 'player' && installation.hp > 0 && Math.hypot(installation.x - x, installation.y - y) < 96,
+      (installation) => installation.hp > 0 && Math.hypot(installation.x - x, installation.y - y) < 96,
     );
   }
 
@@ -734,12 +766,14 @@ export class BattleScene extends Scene {
     const startX = sourceOrigin.x + directionX * muzzleOffset;
     const startY = sourceOrigin.y + directionY * muzzleOffset;
     const visualDistance = Math.hypot(event.target.x - startX, event.target.y - startY);
-    const baseSize = event.projectile === 'rocket' ? 150 : 96;
+    const baseSize = event.projectile === 'rocket' ? 150 : event.projectile === 'flame' ? 112 : 96;
     const startSize = baseSize * sourceScale;
     const endSize = baseSize * targetScale;
     const duration = event.projectile === 'rocket'
       ? Math.max(170, Math.min(460, visualDistance / 1.15))
-      : Math.max(90, Math.min(260, visualDistance / 2));
+      : event.projectile === 'flame'
+        ? Math.max(70, Math.min(180, visualDistance / 2.6))
+        : Math.max(90, Math.min(260, visualDistance / 2));
     const projectile = this.trackCombatVfx(
       this.add
         .image(startX, startY, 'combat-vfx-sprites', event.projectile === 'rocket' ? 1 : 0)
@@ -747,14 +781,15 @@ export class BattleScene extends Scene {
         .setDepth(7.25 + startY / 2_000)
         .setRotation(Math.atan2(dy, dx)),
     );
-    if (event.source.team === 'enemy') projectile.setTint(0xff8a72);
+    if (event.projectile === 'flame') projectile.setTint(event.source.team === 'player' ? 0xffb347 : 0xff6b3d);
+    else if (event.source.team === 'enemy') projectile.setTint(0xff8a72);
 
     const targetScaleRatio = endSize / Math.max(1, startSize);
     const endScaleX = projectile.scaleX * targetScaleRatio;
     const endScaleY = projectile.scaleY * targetScaleRatio;
-    const maxTrailPips = event.projectile === 'rocket' ? 5 : 3;
+    const maxTrailPips = event.projectile === 'rocket' ? 5 : event.projectile === 'flame' ? 7 : 3;
     let trailPips = 0;
-    let nextTrailAt = this.time.now + (event.projectile === 'rocket' ? 54 : 42);
+    let nextTrailAt = this.time.now + (event.projectile === 'rocket' ? 54 : event.projectile === 'flame' ? 24 : 42);
 
     this.tweens.add({
       targets: projectile,
@@ -802,16 +837,25 @@ export class BattleScene extends Scene {
     depth: number,
   ): void {
     const scale = getPerspectiveScale(y);
+    const color = projectile === 'flame'
+      ? team === 'player' ? 0xffb347 : 0xff623d
+      : teamColor(team);
     const pip = this.trackCombatVfx(
       this.add
-        .circle(x, y, (projectile === 'rocket' ? 4.5 : 2.8) * scale, teamColor(team), projectile === 'rocket' ? 0.5 : 0.42)
+        .circle(
+          x,
+          y,
+          (projectile === 'rocket' ? 4.5 : projectile === 'flame' ? 5.4 : 2.8) * scale,
+          color,
+          projectile === 'flame' ? 0.64 : projectile === 'rocket' ? 0.5 : 0.42,
+        )
         .setDepth(depth),
     );
     this.tweens.add({
       targets: pip,
       scale: 0.28,
       alpha: 0,
-      duration: projectile === 'rocket' ? 190 : 125,
+      duration: projectile === 'rocket' ? 190 : projectile === 'flame' ? 105 : 125,
       ease: 'Quad.Out',
       onComplete: () => this.destroyCombatVfx(pip),
     });
@@ -819,7 +863,7 @@ export class BattleScene extends Scene {
 
   private showProjectileImpact(x: number, y: number, team: Team, projectile: ProjectileKind): void {
     const scale = getPerspectiveScale(y);
-    const size = (projectile === 'rocket' ? 132 : 92) * scale;
+    const size = (projectile === 'rocket' ? 132 : projectile === 'flame' ? 116 : 92) * scale;
     const impact = this.trackCombatVfx(
       this.add
         .image(x, y, 'combat-vfx-sprites', 2)
@@ -827,7 +871,8 @@ export class BattleScene extends Scene {
         .setDepth(8.45 + y / 2_000)
         .setAlpha(0.94),
     );
-    if (team === 'enemy') impact.setTint(0xffab86);
+    if (projectile === 'flame') impact.setTint(team === 'player' ? 0xffb347 : 0xff6b3d);
+    else if (team === 'enemy') impact.setTint(0xffab86);
     const startScaleX = impact.scaleX;
     const startScaleY = impact.scaleY;
     this.tweens.add({
@@ -835,7 +880,7 @@ export class BattleScene extends Scene {
       scaleX: startScaleX * 1.28,
       scaleY: startScaleY * 1.28,
       alpha: 0,
-      duration: projectile === 'rocket' ? 280 : 190,
+      duration: projectile === 'rocket' ? 280 : projectile === 'flame' ? 150 : 190,
       ease: 'Quad.Out',
       onComplete: () => this.destroyCombatVfx(impact),
     });

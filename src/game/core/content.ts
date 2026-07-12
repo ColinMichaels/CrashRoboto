@@ -14,8 +14,12 @@ import type {
   MatchConfig,
   Team,
   TowerState,
+  TowerWeaponDefinition,
+  TowerWeaponId,
+  TowerWeaponLoadout,
   UpgradeStat,
 } from './types';
+import { BASE_FIRMWARE_BUDGET, MAX_FIRMWARE_BUDGET } from './progression';
 
 export const BOARD_WIDTH = 1600;
 export const BOARD_HEIGHT = 684;
@@ -29,6 +33,71 @@ export const OVERDRIVE_COOLDOWN_MS = 14_000;
 export const OVERDRIVE_AURA_RADIUS = 180;
 export const DECK_SIZE = 8;
 export const HAND_SIZE = 4;
+
+export const TOWER_WEAPON_IDS: TowerWeaponId[] = ['gun', 'rocket', 'flame'];
+export const DEFAULT_TOWER_WEAPON_ID: TowerWeaponId = 'gun';
+export const TOWER_WEAPONS: Record<TowerWeaponId, TowerWeaponDefinition> = {
+  gun: {
+    id: 'gun',
+    name: 'Twin Gun',
+    shortName: 'GUN',
+    description: 'Fast single-target fire with balanced reach.',
+    damage: 64,
+    range: 245,
+    attackInterval: 0.55,
+    projectile: 'bullet',
+    splashRadius: 0,
+    splashMultiplier: 0,
+    frame: 0,
+    accent: '#57e8f5',
+  },
+  rocket: {
+    id: 'rocket',
+    name: 'Siege Rockets',
+    shortName: 'ROCKET',
+    description: 'Heavy long-range splash damage with a slow firing cycle.',
+    damage: 190,
+    range: 270,
+    attackInterval: 1.8,
+    projectile: 'rocket',
+    splashRadius: 82,
+    splashMultiplier: 0.58,
+    frame: 1,
+    accent: '#ffc857',
+  },
+  flame: {
+    id: 'flame',
+    name: 'Flame Jet',
+    shortName: 'FLAME',
+    description: 'Rapid short-range thermal splash that controls clustered attackers.',
+    damage: 36,
+    range: 150,
+    attackInterval: 0.3,
+    projectile: 'flame',
+    splashRadius: 58,
+    splashMultiplier: 0.72,
+    frame: 2,
+    accent: '#ff7548',
+  },
+};
+
+export const createDefaultTowerWeapons = (): TowerWeaponLoadout => ({
+  left: DEFAULT_TOWER_WEAPON_ID,
+  right: DEFAULT_TOWER_WEAPON_ID,
+});
+
+export const isTowerWeaponId = (value: unknown): value is TowerWeaponId =>
+  typeof value === 'string' && Object.hasOwn(TOWER_WEAPONS, value);
+
+export function normalizeTowerWeapons(value: unknown): TowerWeaponLoadout | null {
+  if (value === undefined) return createDefaultTowerWeapons();
+  if (!isPlainRecord(value)) return null;
+  const entries = getOwnEntries(value);
+  if (!entries || entries.some(([lane]) => lane !== 'left' && lane !== 'right')) return null;
+  const candidate = value as Partial<Record<'left' | 'right', unknown>>;
+  if (!isTowerWeaponId(candidate.left) || !isTowerWeaponId(candidate.right)) return null;
+  return { left: candidate.left, right: candidate.right };
+}
 
 export const GAME_MODE_IDS: GameModeId[] = ['core-siege', 'turbo-grid', 'relay-rush'];
 export const DEFAULT_GAME_MODE_ID: GameModeId = 'core-siege';
@@ -69,7 +138,7 @@ export const GAME_MODES: Record<GameModeId, GameModeDefinition> = {
   },
 };
 
-export const LOBBY_FIRMWARE_BUDGET = 6;
+export const LOBBY_FIRMWARE_BUDGET = BASE_FIRMWARE_BUDGET;
 export const UPGRADE_COSTS = [2, 3] as const;
 export const UPGRADE_MULTIPLIERS: Record<UpgradeStat, readonly [number, number, number]> = {
   output: [1, 1.12, 1.24],
@@ -125,6 +194,7 @@ const getOwnEntries = (value: Record<string, unknown>): [string, unknown][] | nu
 export function normalizePlayerUpgrades(
   value: unknown,
   playerDeck: readonly CardId[],
+  firmwareBudget = LOBBY_FIRMWARE_BUDGET,
 ): Record<RobotCardId, RobotUpgradeState> | null {
   const normalized = createEmptyRobotUpgrades();
   if (value === undefined) return normalized;
@@ -155,15 +225,17 @@ export function normalizePlayerUpgrades(
     if (robotSpend > 0 && !playerCards.has(robotId)) return null;
     tierPointSpend += robotSpend;
   }
-  return tierPointSpend <= LOBBY_FIRMWARE_BUDGET ? normalized : null;
+  return tierPointSpend <= firmwareBudget ? normalized : null;
 }
 
 export const getUpgradeCost = (tier: RobotUpgradeState[UpgradeStat]): number | null =>
   tier === 0 ? UPGRADE_COSTS[0] : tier === 1 ? UPGRADE_COSTS[1] : null;
 
 export function getLaneX(lane: 'left' | 'right', y: number): number {
-  const depth = Math.max(0, Math.min(1, y / BOARD_HEIGHT));
-  const spread = 270 + depth * 130;
+  const clampedY = Math.max(0, Math.min(BOARD_HEIGHT, y));
+  const spread = clampedY <= RIVER_Y
+    ? 95 + (RIVER_Y - clampedY) * 0.18
+    : 95 + (clampedY - RIVER_Y) * 0.28;
   return 800 + (lane === 'left' ? -spread : spread);
 }
 
@@ -537,21 +609,40 @@ export function createDefaultMatchConfig(): MatchConfig {
     modeId: DEFAULT_GAME_MODE_ID,
     playerDeck: [...DEFAULT_PLAYER_DECK],
     playerUpgrades: createEmptyRobotUpgrades(),
+    playerTowerWeapons: createDefaultTowerWeapons(),
   };
 }
 
 export function validateMatchConfig(value: unknown): MatchConfig | null {
   if (typeof value !== 'object' || value === null) return null;
   try {
-    const candidate = value as { modeId?: unknown; playerDeck?: unknown; playerUpgrades?: unknown };
+    const candidate = value as {
+      modeId?: unknown;
+      playerDeck?: unknown;
+      playerUpgrades?: unknown;
+      playerTowerWeapons?: unknown;
+      playerFirmwareBudget?: unknown;
+    };
     if (!isGameModeId(candidate.modeId) || !isValidDeck(candidate.playerDeck)) return null;
-    const playerUpgrades = normalizePlayerUpgrades(candidate.playerUpgrades, candidate.playerDeck);
-    if (!playerUpgrades) return null;
-    return {
+    const firmwareBudget = candidate.playerFirmwareBudget === undefined
+      ? LOBBY_FIRMWARE_BUDGET
+      : candidate.playerFirmwareBudget;
+    if (
+      !Number.isInteger(firmwareBudget) ||
+      (firmwareBudget as number) < LOBBY_FIRMWARE_BUDGET ||
+      (firmwareBudget as number) > MAX_FIRMWARE_BUDGET
+    ) return null;
+    const playerUpgrades = normalizePlayerUpgrades(candidate.playerUpgrades, candidate.playerDeck, firmwareBudget as number);
+    const playerTowerWeapons = normalizeTowerWeapons(candidate.playerTowerWeapons);
+    if (!playerUpgrades || !playerTowerWeapons) return null;
+    const config: MatchConfig = {
       modeId: candidate.modeId,
       playerDeck: [...candidate.playerDeck],
       playerUpgrades,
+      playerTowerWeapons,
     };
+    if (candidate.playerFirmwareBudget !== undefined) config.playerFirmwareBudget = firmwareBudget as number;
+    return config;
   } catch {
     return null;
   }
@@ -565,9 +656,11 @@ const tower = (
   x: number,
   y: number,
   relayHpMultiplier: number,
+  weaponId: TowerWeaponId,
 ): TowerState => {
   const core = kind === 'core';
   const maxHp = core ? 3200 : Math.round(2000 * relayHpMultiplier);
+  const weapon = TOWER_WEAPONS[weaponId];
   return {
     id,
     team,
@@ -578,21 +671,30 @@ const tower = (
     hp: maxHp,
     maxHp,
     cooldown: 0,
-    damage: core ? 118 : 92,
-    range: core ? 255 : 235,
-    attackInterval: core ? 0.85 : 0.95,
-    projectile: core ? 'rocket' : 'bullet',
+    damage: core ? 118 : weapon.damage,
+    range: core ? 255 : weapon.range,
+    attackInterval: core ? 0.85 : weapon.attackInterval,
+    projectile: core ? 'rocket' : weapon.projectile,
+    weapon: core ? 'rocket' : weaponId,
+    splashRadius: core ? 72 : weapon.splashRadius,
+    splashMultiplier: core ? 0.5 : weapon.splashMultiplier,
   };
 };
 
-export function createTowers(relayHpMultiplier = 1): TowerState[] {
+export function createTowers(
+  relayHpMultiplier = 1,
+  playerWeapons: TowerWeaponLoadout = createDefaultTowerWeapons(),
+  enemyWeapons: TowerWeaponLoadout = createDefaultTowerWeapons(),
+): TowerState[] {
+  // Both networks sit on their rear mounting pads: enemy structures hug the
+  // far edge while the player's mirrored line anchors the near edge.
   return [
-    tower('enemy-left', 'enemy', 'relay', 'left', getLaneX('left', 175), 175, relayHpMultiplier),
-    tower('enemy-core', 'enemy', 'core', 'core', 800, 145, relayHpMultiplier),
-    tower('enemy-right', 'enemy', 'relay', 'right', getLaneX('right', 175), 175, relayHpMultiplier),
-    tower('player-left', 'player', 'relay', 'left', getLaneX('left', 510), 510, relayHpMultiplier),
-    tower('player-core', 'player', 'core', 'core', 800, 555, relayHpMultiplier),
-    tower('player-right', 'player', 'relay', 'right', getLaneX('right', 510), 510, relayHpMultiplier),
+    tower('enemy-left', 'enemy', 'relay', 'left', getLaneX('left', 118), 118, relayHpMultiplier, enemyWeapons.left),
+    tower('enemy-core', 'enemy', 'core', 'core', 800, 92, relayHpMultiplier, 'rocket'),
+    tower('enemy-right', 'enemy', 'relay', 'right', getLaneX('right', 118), 118, relayHpMultiplier, enemyWeapons.right),
+    tower('player-left', 'player', 'relay', 'left', getLaneX('left', 550), 550, relayHpMultiplier, playerWeapons.left),
+    tower('player-core', 'player', 'core', 'core', 800, 575, relayHpMultiplier, 'rocket'),
+    tower('player-right', 'player', 'relay', 'right', getLaneX('right', 550), 550, relayHpMultiplier, playerWeapons.right),
   ];
 }
 

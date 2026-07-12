@@ -26,13 +26,14 @@ The generated `dist/` directory can be hosted on any static web host.
 ## Controls
 
 - In the Command Lobby, choose a pilot and battle protocol, then select exactly eight unique command chips for your loadout.
-- Open a robot's lobby **LAB** control to allocate up to six persistent Firmware points across Output, Range, and Speed; refunded tiers can be reassigned before deployment.
+- Use the Tower Bay to equip the left and right Relay independently with fast Twin Guns, slow heavy Siege Rockets, or short-range Flame Jets.
+- Open a robot card's lobby **LAB** control to allocate persistent Firmware points across Output, Range, and Speed; refunded tiers can be reassigned before deployment.
 - Four shuffled chips are available at a time; playing one cycles the next chip into your hand.
 - Click or tap a command card, then click or tap the highlighted deployment zone.
-- Drag a command card directly onto your side of the arena.
+- Drag a command card onto your perspective-matched side of the arena; destroying an enemy Relay also unlocks deployment on that Relay's side of enemy territory.
 - Use a robot card's **LAB** control to inspect its abilities, range, output, and speed.
 - Robot Lab firmware buttons spend match Charge on Output, Range, or Speed upgrades for that robot type.
-- Programs can be targeted anywhere on the battlefield; Installations must be placed on your side.
+- Programs can be targeted anywhere on the active battlefield; robots and Installations begin on your side and can later use only enemy lanes whose Relay has been destroyed.
 - When VECTOR-9 is active, use the **Overdrive** control to spend 2 Charge on its command aura.
 - Press `1`–`4` to select a card.
 - Press `Esc` or right-click to cancel selection.
@@ -49,7 +50,10 @@ The selected pilot, mode, last valid eight-chip loadout, and lobby Firmware allo
 ## Rules
 
 - Each network starts with two Relay towers and one central Core.
-- Breaking a Relay scores one Data Point and exposes that lane's route to the Core.
+- The active battlefield is longer than it is wide, with each network's towers anchored along the back edge of its board side.
+- Relay weapon packages trade damage, firing cycle, range, and splash coverage; heavier rocket attacks fire substantially slower.
+- Breaking a Relay scores one Data Point, exposes that lane's route to the Core, and unlocks card deployment in that lane's enemy-side territory.
+- Battle Score rewards destroying robots (50), Installations (75), Relays (500), and the enemy Core (1,500), plus a 1,000-point victory bonus.
 - Destroying the enemy Core wins immediately.
 - If a protocol's timer expires, Data Points decide the winner; remaining tower integrity breaks a tie.
 - Charge regenerates automatically and doubles after the selected protocol reaches its Charge Surge threshold.
@@ -62,6 +66,8 @@ The selected pilot, mode, last valid eight-chip loadout, and lobby Firmware allo
 - **Tech classes**—Standard, Advanced, Prototype, Exotic, and Commander—signal mechanical complexity rather than raw power.
 - **VECTOR-9** is a unique Commander. Only one can be active per team, and its manual Overdrive accelerates nearby allied units.
 - **Robot Lab upgrades** have two tiers per stat and apply immediately to deployed and future robots. Lobby Firmware establishes each match's free baseline; Charge-funded battle upgrades reset to that baseline on restart.
+- Player XP persists between matches. Every match grants participation XP, result XP, and 10% of the player's Battle Score; every two player levels add one lobby Firmware point, from six at Level 1 to a maximum of twelve.
+- **Tower Bay packages** persist with the lobby loadout. Twin Guns focus one target, Siege Rockets deliver slow heavy splash, and Flame Jets rapidly control clusters at short range, each with a distinct tower skin.
 - Deployed robots use arena-specific elevated three-quarter sprites with separate away/toward poses, two-frame locomotion cycles, projection-aware foreshortening, and grounded shadows; card and lobby portraits remain unchanged.
 - Robot and tower attacks launch visible bullets or rockets; impacts and destroyed combatants use perspective-scaled explosions.
 
@@ -71,7 +77,7 @@ The selected pilot, mode, last valid eight-chip loadout, and lobby Firmware allo
 npm run check
 ```
 
-This runs the TypeScript compiler, Vitest suite, and production build. The deterministic simulation tests cover deck validation and shuffle behavior, custom card cycling, all three battle protocols, Charge regeneration, Robot Lab upgrades, projectile/destruction event ordering, Program damage and control, Installation decay and fabrication, Commander Overdrive, pausing, terminal-event ordering, Relay scoring, instant Core victory, lobby return, and seeded replay consistency. Presentation tests cover atlas mapping, direction hysteresis, gait timing, paused/disabled/dead frames, and chassis metadata. Storage tests cover unavailable browser storage and partial loadout edits.
+This runs the TypeScript compiler, Vitest suite, and production build. The deterministic simulation tests cover deck validation and shuffle behavior, custom card cycling, all three battle protocols, Charge regeneration, Robot Lab upgrades, Relay weapon packages and splash behavior, projectile/destruction event ordering, Program damage and control, Installation decay and fabrication, Commander Overdrive, pausing, terminal-event ordering, Relay scoring, instant Core victory, lobby return, and seeded replay consistency. Presentation tests cover atlas mapping, direction hysteresis, gait timing, paused/disabled/dead frames, and chassis metadata. Storage tests cover unavailable browser storage, partial loadout edits, and persistent Tower Bay selections.
 
 For a reproducible local match, add a positive integer seed to the URL, such as `?seed=12345`. Development builds expose a small `window.__CRASH_ROBOTO__` test bridge; production builds do not.
 

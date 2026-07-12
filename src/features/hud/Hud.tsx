@@ -62,6 +62,7 @@ export function Hud({
           <PilotMark pilotId={pilotId} className="pilot-mark" />
           <strong>{pilot.name}</strong>
           <span className="score-node" aria-label={`${snapshot.score.player} Data Points`}>{snapshot.score.player}</span>
+          <span className="match-points" aria-label={`${snapshot.battleScore.player} battle score`}>{snapshot.battleScore.player.toLocaleString()} PTS</span>
         </div>
 
         <div className={`match-clock${snapshot.chargeOverclock ? ' is-charge-overclock' : ''}`} aria-label={`${formatClock(snapshot.remainingMs)} remaining`}>
@@ -71,6 +72,7 @@ export function Hud({
 
         <div className="pilot pilot-enemy">
           <span className="score-node" aria-label={`${snapshot.score.enemy} enemy Data Points`}>{snapshot.score.enemy}</span>
+          <span className="match-points" aria-label={`${snapshot.battleScore.enemy} enemy battle score`}>{snapshot.battleScore.enemy.toLocaleString()} PTS</span>
           <strong>KERNEL-X</strong>
           <span className="pilot-mark"><i /></span>
         </div>

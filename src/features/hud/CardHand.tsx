@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import { getCardSpriteStyle, TECH_CLASS_LABELS } from '../cards/cardPresentation';
+import { getRobotUpgradeBadgeInfo, UpgradeBadge } from '../cards/UpgradeBadge';
 import { CARDS, MAX_CHARGE } from '../../game/core/content';
 import type {
   CardCategory,
@@ -58,6 +59,13 @@ export function CardHand({ snapshot, onSelect, onBeginDrag, onCancelDrag, onInsp
   const charge = snapshot.charge.player;
   const interactive = snapshot.phase === 'playing';
   const nextCard = CARDS[snapshot.next.player];
+  const nextIsRobot = nextCard.category === 'unit' || nextCard.category === 'commander';
+  const nextUpgradeBadge = getRobotUpgradeBadgeInfo(
+    nextIsRobot ? snapshot.upgrades.player[nextCard.id as RobotCardId] : undefined,
+  );
+  const nextUpgradeCopy = nextUpgradeBadge
+    ? ` Upgraded to Mark ${nextUpgradeBadge.mark} with ${nextUpgradeBadge.tierPoints} installed ${nextUpgradeBadge.tierPoints === 1 ? 'tier' : 'tiers'}.`
+    : '';
   const overdrive = getOverdrivePresentation(snapshot);
   const overdriveEnabled = interactive && snapshot.commander.player.available;
 
@@ -71,6 +79,12 @@ export function CardHand({ snapshot, onSelect, onBeginDrag, onCancelDrag, onInsp
           const selected = snapshot.selected === cardId;
           const playable = interactive && affordable && !uniqueBlocked;
           const isRobot = card.category === 'unit' || card.category === 'commander';
+          const upgradeBadge = getRobotUpgradeBadgeInfo(
+            isRobot ? snapshot.upgrades.player[cardId as RobotCardId] : undefined,
+          );
+          const upgradeCopy = upgradeBadge
+            ? ` Upgraded to Mark ${upgradeBadge.mark} with ${upgradeBadge.tierPoints} installed ${upgradeBadge.tierPoints === 1 ? 'tier' : 'tiers'}.`
+            : '';
           const availability = uniqueBlocked
             ? ' Commander already deployed.'
             : affordable
@@ -95,9 +109,10 @@ export function CardHand({ snapshot, onSelect, onBeginDrag, onCancelDrag, onInsp
                 }}
                 disabled={!interactive || uniqueBlocked}
                 aria-pressed={selected}
-                aria-label={`${index + 1}. ${card.name}, ${CATEGORY_LABELS[card.category].toLowerCase()}, ${TECH_CLASS_LABELS[card.techClass].toLowerCase()} tech, costs ${card.cost} charge. ${card.description}.${availability}`}
+                aria-label={`${index + 1}. ${card.name}, ${CATEGORY_LABELS[card.category].toLowerCase()}, ${TECH_CLASS_LABELS[card.techClass].toLowerCase()} tech, costs ${card.cost} charge.${upgradeCopy} ${card.description}.${availability}`}
               >
                 <span className="card-cost" aria-hidden="true">{card.cost}</span>
+                <UpgradeBadge info={upgradeBadge} className="card-upgrade-badge" />
                 <span className="card-tech">{TECH_CLASS_LABELS[card.techClass]}</span>
                 <span className={`card-portrait portrait-${card.sheet}`} style={getCardSpriteStyle(card.sheet, card.frame)} aria-hidden="true" />
                 <span className="card-meta">
@@ -127,9 +142,10 @@ export function CardHand({ snapshot, onSelect, onBeginDrag, onCancelDrag, onInsp
 
       <div
         className={`next-card ${cardClass(nextCard)}`}
-        aria-label={`Next card: ${nextCard.name}, ${CATEGORY_LABELS[nextCard.category].toLowerCase()}, ${TECH_CLASS_LABELS[nextCard.techClass].toLowerCase()} tech`}
+        aria-label={`Next card: ${nextCard.name}, ${CATEGORY_LABELS[nextCard.category].toLowerCase()}, ${TECH_CLASS_LABELS[nextCard.techClass].toLowerCase()} tech.${nextUpgradeCopy}`}
       >
         <span className="next-label">NEXT</span>
+        <UpgradeBadge info={nextUpgradeBadge} className="next-card-upgrade-badge" />
         <span className="next-tech">{TECH_CLASS_LABELS[nextCard.techClass]}</span>
         <i className={`card-portrait next-portrait portrait-${nextCard.sheet}`} style={getCardSpriteStyle(nextCard.sheet, nextCard.frame)} aria-hidden="true" />
         <span className="next-meta">

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { PILOTS, type PilotId } from '../../game/core/pilots';
 import type { MatchSnapshot } from '../../game/core/types';
+import type { MatchProgressAward } from '../../game/core/progression';
 
 interface GameOverlayProps {
   snapshot: MatchSnapshot;
@@ -8,9 +9,10 @@ interface GameOverlayProps {
   onRestart: () => void;
   onResume: () => void;
   onReturnToLobby: () => void;
+  progressAward: MatchProgressAward | null;
 }
 
-export function GameOverlay({ snapshot, pilotId, onRestart, onResume, onReturnToLobby }: GameOverlayProps) {
+export function GameOverlay({ snapshot, pilotId, onRestart, onResume, onReturnToLobby, progressAward }: GameOverlayProps) {
   const primaryActionRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -57,6 +59,11 @@ export function GameOverlay({ snapshot, pilotId, onRestart, onResume, onReturnTo
         <span><small>{PILOTS[pilotId].name}</small><strong>{snapshot.score.player}</strong></span>
         <i />
         <span><small>KERNEL-X</small><strong>{snapshot.score.enemy}</strong></span>
+      </div>
+      <div className="result-rewards" aria-label={`Battle score ${snapshot.battleScore.player}. ${progressAward?.xp ?? 0} experience earned.`}>
+        <span><small>BATTLE SCORE</small><strong>{snapshot.battleScore.player.toLocaleString()}</strong></span>
+        <i />
+        <span><small>XP EARNED</small><strong>+{progressAward?.xp ?? 0}</strong></span>
       </div>
       <div className="overlay-actions">
         <button ref={primaryActionRef} className="primary-action compact" type="button" onClick={onRestart} data-testid="restart-match">RUN IT BACK</button>

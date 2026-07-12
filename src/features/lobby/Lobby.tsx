@@ -1,14 +1,26 @@
-import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
+import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import { getCardSpriteStyle } from '../cards/cardPresentation';
-import { CARDS, DECK_SIZE, GAME_MODE_IDS, GAME_MODES, LOBBY_FIRMWARE_BUDGET } from '../../game/core/content';
+import { getRobotUpgradeBadgeInfo, UpgradeBadge } from '../cards/UpgradeBadge';
+import {
+  CARDS,
+  DECK_SIZE,
+  GAME_MODE_IDS,
+  GAME_MODES,
+  TOWER_WEAPONS,
+  TOWER_WEAPON_IDS,
+} from '../../game/core/content';
+import { getXpForLevel, MAX_PLAYER_LEVEL } from '../../game/core/progression';
 import { PILOTS, PILOT_IDS, type PilotId } from '../../game/core/pilots';
 import type {
   CardCategory,
   CardDefinition,
   CardId,
   GameModeId,
+  Lane,
   RobotCardId,
   RobotUpgradeState,
+  TowerWeaponId,
+  TowerWeaponLoadout,
   UpgradeStat,
 } from '../../game/core/types';
 import { RobotStatsDialog } from '../hud/RobotStatsDialog';
@@ -20,9 +32,14 @@ export interface LobbyProps {
   selectedDeck: CardId[];
   selectedPilot: PilotId;
   upgrades: Record<RobotCardId, RobotUpgradeState>;
+  towerWeapons: TowerWeaponLoadout;
   firmwareRemaining: number;
+  firmwareBudget: number;
+  playerLevel: number;
+  playerXp: number;
   onSelectMode: (mode: GameModeId) => void;
   onSelectPilot: (pilotId: PilotId) => void;
+  onSelectTowerWeapon: (lane: Lane, weaponId: TowerWeaponId) => void;
   onToggleCard: (cardId: CardId) => void;
   onRemoveCard: (cardId: CardId) => void;
   onUpgradeRobot: (robotId: RobotCardId, stat: UpgradeStat) => void;
@@ -47,6 +64,7 @@ const MODE_META: Record<GameModeId, string> = {
 };
 
 const LOBBY_CARDS = Object.values(CARDS);
+const RELAY_LANES: Lane[] = ['left', 'right'];
 
 function formatDuration(durationMs: number): string {
   const seconds = Math.round(durationMs / 1_000);
@@ -120,6 +138,7 @@ function ResetIcon() {
 
 interface CardChipProps {
   card: CardDefinition;
+  upgrades?: RobotUpgradeState;
   selected?: boolean;
   selectedIndex?: number;
   disabled?: boolean;
@@ -128,7 +147,11 @@ interface CardChipProps {
   onInspect?: (trigger: HTMLButtonElement) => void;
 }
 
-function CardChip({ card, selected = false, selectedIndex, disabled = false, variant, onClick, onInspect }: CardChipProps) {
+function CardChip({ card, upgrades, selected = false, selectedIndex, disabled = false, variant, onClick, onInspect }: CardChipProps) {
+  const upgradeBadge = getRobotUpgradeBadgeInfo(upgrades);
+  const upgradeCopy = upgradeBadge
+    ? ` Upgraded to Mark ${upgradeBadge.mark} with ${upgradeBadge.tierPoints} installed ${upgradeBadge.tierPoints === 1 ? 'tier' : 'tiers'}.`
+    : '';
   const selectionCopy = selectedIndex === undefined ? '' : ` Selected in loadout slot ${selectedIndex + 1}.`;
   const actionCopy = variant === 'loadout'
     ? ' Activate to remove from the loadout.'
@@ -146,10 +169,11 @@ function CardChip({ card, selected = false, selectedIndex, disabled = false, var
         onClick={onClick}
         disabled={disabled}
         aria-pressed={variant === 'archive' ? selected : undefined}
-        aria-label={`${card.name}, ${CATEGORY_LABELS[card.category].toLowerCase()}, costs ${card.cost} charge.${selectionCopy}${actionCopy}`}
+        aria-label={`${card.name}, ${CATEGORY_LABELS[card.category].toLowerCase()}, costs ${card.cost} charge.${upgradeCopy}${selectionCopy}${actionCopy}`}
         title={`${card.name} — ${card.description}`}
       >
         <span className="lobby-card-cost" aria-hidden="true">{card.cost}</span>
+        <UpgradeBadge info={upgradeBadge} className="lobby-card-upgrade-badge" />
         {variant === 'loadout' && selectedIndex !== undefined && (
           <span className="lobby-card-order" aria-hidden="true">{String(selectedIndex + 1).padStart(2, '0')}</span>
         )}
@@ -185,14 +209,59 @@ function EmptyLoadoutSlot({ index }: { index: number }) {
   );
 }
 
+function TowerWeaponButton({
+  lane,
+  weaponId,
+  selected,
+  onSelect,
+}: {
+  lane: Lane;
+  weaponId: TowerWeaponId;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const weapon = TOWER_WEAPONS[weaponId];
+  const frameX = weapon.frame % 2 === 0 ? '0%' : '100%';
+  const frameY = weapon.frame < 2 ? '0%' : '100%';
+  const style = {
+    '--tower-weapon-accent': weapon.accent,
+    '--tower-frame-x': frameX,
+    '--tower-frame-y': frameY,
+  } as CSSProperties;
+
+  return (
+    <button
+      className={`lobby-tower-weapon${selected ? ' is-selected' : ''}`}
+      style={style}
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      aria-label={`${lane} Relay ${weapon.name}. ${weapon.damage} damage every ${weapon.attackInterval.toFixed(2)} seconds. ${weapon.range} range. ${weapon.description}`}
+      title={`${weapon.name} — ${weapon.description}`}
+      onClick={onSelect}
+    >
+      <span className="lobby-tower-sprite" aria-hidden="true" />
+      <span className="lobby-tower-weapon-copy">
+        <strong>{weapon.shortName}</strong>
+        <small>{weapon.damage} DMG · {weapon.attackInterval.toFixed(2)}s</small>
+      </span>
+    </button>
+  );
+}
+
 export function Lobby({
   selectedMode,
   selectedDeck,
   selectedPilot,
   upgrades,
+  towerWeapons,
   firmwareRemaining,
+  firmwareBudget,
+  playerLevel,
+  playerXp,
   onSelectMode,
   onSelectPilot,
+  onSelectTowerWeapon,
   onToggleCard,
   onRemoveCard,
   onUpgradeRobot,
@@ -205,21 +274,22 @@ export function Lobby({
   const modeHeadingId = useId();
   const launchHintId = useId();
   const pilotHeadingId = useId();
+  const towerHeadingId = useId();
   const pilotTriggerRef = useRef<HTMLButtonElement>(null);
   const labTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [announcement, setAnnouncement] = useState('');
   const [pilotMenuOpen, setPilotMenuOpen] = useState(false);
   const [inspectedRobot, setInspectedRobot] = useState<RobotCardId | null>(null);
   const deckFull = selectedDeck.length === DECK_SIZE;
-  const averageCharge = useMemo(() => {
-    if (selectedDeck.length === 0) return '0.0';
-    const total = selectedDeck.reduce((sum, cardId) => sum + CARDS[cardId].cost, 0);
-    return (total / selectedDeck.length).toFixed(1);
-  }, [selectedDeck]);
+  const currentLevelXp = getXpForLevel(playerLevel);
+  const nextLevelXp = getXpForLevel(Math.min(MAX_PLAYER_LEVEL, playerLevel + 1));
+  const levelXp = playerXp - currentLevelXp;
+  const levelXpTarget = Math.max(0, nextLevelXp - currentLevelXp);
   const selectedModeDefinition = GAME_MODES[selectedMode];
   const selectedPilotDefinition = PILOTS[selectedPilot];
   const lobbyStyle = {
-    '--lobby-arena': `url("${import.meta.env.BASE_URL}assets/game/arena-board-perspective.png")`,
+    '--lobby-arena': `url("${import.meta.env.BASE_URL}assets/game/arena-board-long.png")`,
+    '--tower-weapon-sprites': `url("${import.meta.env.BASE_URL}assets/game/relay-weapon-sprites.png")`,
   } as CSSProperties;
 
   useEffect(() => {
@@ -248,6 +318,11 @@ export function Lobby({
     setPilotMenuOpen(false);
     setAnnouncement(`${PILOTS[pilotId].name} selected as active pilot.`);
     window.requestAnimationFrame(() => pilotTriggerRef.current?.focus({ preventScroll: true }));
+  };
+
+  const chooseTowerWeapon = (lane: Lane, weaponId: TowerWeaponId) => {
+    onSelectTowerWeapon(lane, weaponId);
+    setAnnouncement(`${lane === 'left' ? 'Left' : 'Right'} Relay upgraded to ${TOWER_WEAPONS[weaponId].name}.`);
   };
 
   const inspectRobot = (robotId: RobotCardId, trigger: HTMLButtonElement) => {
@@ -408,6 +483,30 @@ export function Lobby({
             );
           })}
         </div>
+        <section className="lobby-tower-bay" aria-labelledby={towerHeadingId}>
+          <div className="lobby-tower-bay-heading">
+            <h2 id={towerHeadingId}>TOWER BAY</h2>
+            <span>POWER ↑ · CYCLE ↓</span>
+          </div>
+          <div className="lobby-tower-loadout">
+            {RELAY_LANES.map((lane) => (
+              <div className="lobby-tower-row" key={lane}>
+                <span className="lobby-tower-lane" aria-hidden="true">{lane === 'left' ? 'L' : 'R'}</span>
+                <div className="lobby-tower-options" role="radiogroup" aria-label={`${lane} Relay weapon package`}>
+                  {TOWER_WEAPON_IDS.map((weaponId) => (
+                    <TowerWeaponButton
+                      key={weaponId}
+                      lane={lane}
+                      weaponId={weaponId}
+                      selected={towerWeapons[lane] === weaponId}
+                      onSelect={() => chooseTowerWeapon(lane, weaponId)}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
       </aside>
 
       <div className="lobby-workspace">
@@ -425,6 +524,9 @@ export function Lobby({
                   {cardId && card ? (
                     <CardChip
                       card={card}
+                      upgrades={card.category === 'unit' || card.category === 'commander'
+                        ? upgrades[cardId as RobotCardId]
+                        : undefined}
                       selected
                       selectedIndex={index}
                       variant="loadout"
@@ -454,6 +556,9 @@ export function Lobby({
                 <div className="lobby-archive-item" role="listitem" key={card.id}>
                   <CardChip
                     card={card}
+                    upgrades={card.category === 'unit' || card.category === 'commander'
+                      ? upgrades[card.id as RobotCardId]
+                      : undefined}
                     selected={selected}
                     selectedIndex={selected ? selectedIndex : undefined}
                     disabled={disabled}
@@ -483,10 +588,11 @@ export function Lobby({
         </div>
         <div
           className="lobby-average"
-          aria-label={`Average card charge ${averageCharge}. ${LOBBY_FIRMWARE_BUDGET - firmwareRemaining} of ${LOBBY_FIRMWARE_BUDGET} lobby firmware points allocated.`}
+          aria-label={`Player level ${playerLevel}. ${levelXp} of ${levelXpTarget} experience toward the next level. ${firmwareBudget - firmwareRemaining} of ${firmwareBudget} lobby firmware points allocated. Firmware capacity increases by one every two levels.`}
         >
-          <span className="lobby-metric"><small>AVG CHARGE</small><strong>{averageCharge}</strong></span>
-          <span className="lobby-metric is-firmware"><small>FIRMWARE</small><strong>{LOBBY_FIRMWARE_BUDGET - firmwareRemaining}/{LOBBY_FIRMWARE_BUDGET}</strong></span>
+          <span className="lobby-metric is-level"><small>LEVEL</small><strong>{playerLevel}</strong></span>
+          <span className="lobby-metric is-xp"><small>XP TO NEXT</small><strong>{playerLevel === MAX_PLAYER_LEVEL ? 'MAX' : `${levelXp}/${levelXpTarget}`}</strong></span>
+          <span className="lobby-metric is-firmware"><small>FIRMWARE · +1/2 LVL</small><strong>{firmwareBudget - firmwareRemaining}/{firmwareBudget}</strong></span>
         </div>
         <button className="lobby-reset-button" type="button" onClick={resetLoadout}>
           <ResetIcon />
