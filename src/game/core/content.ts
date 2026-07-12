@@ -1,4 +1,6 @@
 import type {
+  CardLevel,
+  CardLevelMap,
   CardDefinition,
   CardId,
   GameModeDefinition,
@@ -181,6 +183,7 @@ export const UPGRADE_MULTIPLIERS: Record<UpgradeStat, readonly [number, number, 
   range: [1, 1.08, 1.16],
   speed: [1, 1.08, 1.16],
 };
+export const CARD_LEVEL_MULTIPLIERS = [1, 1.04, 1.08, 1.12, 1.16] as const;
 
 export const ROBOT_CARD_IDS: RobotCardId[] = [
   'zip',
@@ -192,6 +195,9 @@ export const ROBOT_CARD_IDS: RobotCardId[] = [
   'drone',
   'patch',
   'vector',
+  'aegis',
+  'wraith',
+  'viper',
 ];
 
 export const createEmptyRobotUpgrades = (): Record<RobotCardId, RobotUpgradeState> =>
@@ -482,6 +488,74 @@ export const ROBOTS: Record<RobotKind, RobotDefinition> = {
     abilityName: 'Overdrive Aura',
     abilityDescription: 'Spend 2 Charge for 5 seconds of faster movement and attack cycles in a 180-range aura.',
   },
+  aegis: {
+    id: 'aegis',
+    name: 'AEGIS-4',
+    shortName: 'AEGIS-4',
+    description: 'Shielded defensive vanguard',
+    cost: 4,
+    category: 'unit',
+    techClass: 'prototype',
+    sheet: 'vault',
+    maxHp: 620,
+    maxShieldHp: 240,
+    damage: 62,
+    attackInterval: 1.25,
+    range: 46,
+    speed: 55,
+    frame: 0,
+    radius: 35,
+    targeting: 'ground',
+    projectile: 'bullet',
+    abilityName: 'Barrier Boot',
+    abilityDescription: 'Deploys with a 240-point barrier that absorbs incoming damage before hull integrity.',
+  },
+  wraith: {
+    id: 'wraith',
+    name: 'Wraith Coil',
+    shortName: 'WRAITH',
+    description: 'Phase-dashing exotic striker',
+    cost: 4,
+    category: 'unit',
+    techClass: 'exotic',
+    sheet: 'vault',
+    maxHp: 360,
+    damage: 90,
+    attackInterval: 1.15,
+    range: 48,
+    speed: 78,
+    frame: 1,
+    radius: 31,
+    targeting: 'ground',
+    projectile: 'bullet',
+    dashDistance: 100,
+    abilityCooldownMs: 5_000,
+    initialAbilityCooldownMs: 1_200,
+    abilityName: 'Phase Step',
+    abilityDescription: 'Dashes up to 100 range toward its target every 5 seconds while outside attack range.',
+  },
+  viper: {
+    id: 'viper',
+    name: 'Scrap Viper',
+    shortName: 'VIPER',
+    description: 'Self-repairing salvage duelist',
+    cost: 3,
+    category: 'unit',
+    techClass: 'prototype',
+    sheet: 'vault',
+    maxHp: 340,
+    damage: 64,
+    attackInterval: 0.9,
+    range: 44,
+    speed: 82,
+    frame: 2,
+    radius: 30,
+    targeting: 'ground',
+    projectile: 'bullet',
+    lifesteal: 0.35,
+    abilityName: 'Salvage Siphon',
+    abilityDescription: 'Repairs itself for 35% of actual direct damage dealt to robots or structures.',
+  },
   microbot: {
     id: 'microbot',
     name: 'Foundry Microbot',
@@ -506,6 +580,8 @@ export const ROBOTS: Record<RobotKind, RobotDefinition> = {
 };
 
 export interface EffectiveRobotStats {
+  maxHp: number;
+  maxShieldHp: number;
   damage: number;
   heal: number;
   range: number;
@@ -516,15 +592,19 @@ export interface EffectiveRobotStats {
 export function getEffectiveRobotStats(
   kind: RobotKind,
   upgrades?: RobotUpgradeState,
+  cardLevel: CardLevel = 1,
 ): EffectiveRobotStats {
   const robot = ROBOTS[kind];
   const outputTier = upgrades?.output ?? 0;
   const rangeTier = upgrades?.range ?? 0;
   const speedTier = upgrades?.speed ?? 0;
-  const damage = robot.damage * UPGRADE_MULTIPLIERS.output[outputTier];
+  const masteryMultiplier = kind === 'microbot' ? 1 : getCardLevelMultiplier(cardLevel);
+  const damage = robot.damage * masteryMultiplier * UPGRADE_MULTIPLIERS.output[outputTier];
   return {
+    maxHp: robot.maxHp * masteryMultiplier,
+    maxShieldHp: (robot.maxShieldHp ?? 0) * masteryMultiplier,
     damage,
-    heal: (robot.heal ?? 0) * UPGRADE_MULTIPLIERS.output[outputTier],
+    heal: (robot.heal ?? 0) * masteryMultiplier * UPGRADE_MULTIPLIERS.output[outputTier],
     range: robot.range * UPGRADE_MULTIPLIERS.range[rangeTier],
     speed: robot.speed * UPGRADE_MULTIPLIERS.speed[speedTier],
     dps: damage / robot.attackInterval,
@@ -564,6 +644,27 @@ export const PROGRAMS: Record<ProgramKind, ProgramDefinition> = {
     damage: 32,
     durationMs: 6_000,
     tickIntervalMs: 1_000,
+  },
+  gravity: {
+    id: 'gravity',
+    name: 'Gravity Well',
+    shortName: 'GRAVITY',
+    description: 'Burst singularity with pull and cycle slow',
+    cost: 3,
+    category: 'program',
+    techClass: 'prototype',
+    sheet: 'vault',
+    frame: 3,
+    abilityName: 'Gravity Well',
+    abilityDescription: 'Pulls enemy robots up to 90 range and slows movement and attack recovery to 65% for 3 seconds.',
+    effect: 'burst',
+    radius: 150,
+    damage: 45,
+    durationMs: 0,
+    tickIntervalMs: 0,
+    pullDistance: 90,
+    slowMultiplier: 0.65,
+    slowMs: 3_000,
   },
 };
 
@@ -606,6 +707,28 @@ export const INSTALLATIONS: Record<InstallationKind, InstallationDefinition> = {
     spawnIntervalMs: 7_000,
     activationDelayMs: 1_500,
   },
+  firewall: {
+    id: 'firewall',
+    name: 'Firewall Node',
+    shortName: 'FIREWALL',
+    description: 'Instant defensive damage-reduction matrix',
+    cost: 4,
+    category: 'installation',
+    techClass: 'exotic',
+    sheet: 'vault',
+    frame: 4,
+    abilityName: 'Bulwark Matrix',
+    abilityDescription: 'Allied robots, Installations, and Towers within 130 range take 24% less incoming damage.',
+    maxHp: 600,
+    lifetimeMs: 28_000,
+    radius: 42,
+    damage: 0,
+    attackInterval: 0,
+    range: 0,
+    activationDelayMs: 0,
+    auraRadius: 130,
+    damageReduction: 0.24,
+  },
 };
 
 export const CARDS = {
@@ -618,10 +741,15 @@ export const CARDS = {
   drone: ROBOTS.drone,
   patch: ROBOTS.patch,
   vector: ROBOTS.vector,
+  aegis: ROBOTS.aegis,
+  wraith: ROBOTS.wraith,
+  viper: ROBOTS.viper,
   emp: PROGRAMS.emp,
   nano: PROGRAMS.nano,
+  gravity: PROGRAMS.gravity,
   sentry: INSTALLATIONS.sentry,
   foundry: INSTALLATIONS.foundry,
+  firewall: INSTALLATIONS.firewall,
 } as Record<CardId, CardDefinition & { id: CardId }>;
 
 // Eight-chip showcase decks. Matches shuffle a private copy before dealing the opening hand.
@@ -634,6 +762,56 @@ export const isGameModeId = (value: unknown): value is GameModeId =>
 export const isCardId = (value: unknown): value is CardId =>
   typeof value === 'string' && Object.hasOwn(CARDS, value);
 
+export const isCardLevel = (value: unknown): value is CardLevel =>
+  Number.isInteger(value) && (value as number) >= 1 && (value as number) <= 5;
+
+export function getCardLevelMultiplier(level: CardLevel = 1): number {
+  return CARD_LEVEL_MULTIPLIERS[level - 1];
+}
+
+const getCardIds = (): CardId[] => Object.keys(CARDS) as CardId[];
+
+export function createDefaultCardLevels(): CardLevelMap {
+  return Object.fromEntries(getCardIds().map((cardId) => [cardId, 1])) as CardLevelMap;
+}
+
+export function cloneCardLevels(levels: CardLevelMap): CardLevelMap {
+  return Object.fromEntries(getCardIds().map((cardId) => [cardId, levels[cardId]])) as CardLevelMap;
+}
+
+export function normalizeCardLevels(value: unknown): CardLevelMap | null {
+  const normalized = createDefaultCardLevels();
+  if (value === undefined) return normalized;
+  if (!isPlainRecord(value)) return null;
+  const entries = getOwnEntries(value);
+  if (!entries) return null;
+  for (const [cardId, level] of entries) {
+    if (!isCardId(cardId) || !isCardLevel(level)) return null;
+    normalized[cardId] = level;
+  }
+  return normalized;
+}
+
+export function getEffectiveProgramDamage(kind: ProgramKind, cardLevel: CardLevel = 1): number {
+  return PROGRAMS[kind].damage * getCardLevelMultiplier(cardLevel);
+}
+
+export interface EffectiveInstallationStats {
+  maxHp: number;
+  damage: number;
+}
+
+export function getEffectiveInstallationStats(
+  kind: InstallationKind,
+  cardLevel: CardLevel = 1,
+): EffectiveInstallationStats {
+  const multiplier = getCardLevelMultiplier(cardLevel);
+  return {
+    maxHp: INSTALLATIONS[kind].maxHp * multiplier,
+    damage: INSTALLATIONS[kind].damage * multiplier,
+  };
+}
+
 export function isValidDeck(value: unknown): value is CardId[] {
   if (!Array.isArray(value) || value.length !== DECK_SIZE) return false;
   if (!value.every(isCardId)) return false;
@@ -644,6 +822,7 @@ export function createDefaultMatchConfig(): MatchConfig {
   return {
     modeId: DEFAULT_GAME_MODE_ID,
     playerDeck: [...DEFAULT_PLAYER_DECK],
+    playerCardLevels: createDefaultCardLevels(),
     playerUpgrades: createEmptyRobotUpgrades(),
     playerTowerWeapons: createDefaultTowerWeapons(),
   };
@@ -655,6 +834,7 @@ export function validateMatchConfig(value: unknown): MatchConfig | null {
     const candidate = value as {
       modeId?: unknown;
       playerDeck?: unknown;
+      playerCardLevels?: unknown;
       playerUpgrades?: unknown;
       playerTowerWeapons?: unknown;
       playerFirmwareBudget?: unknown;
@@ -669,11 +849,13 @@ export function validateMatchConfig(value: unknown): MatchConfig | null {
       (firmwareBudget as number) > MAX_FIRMWARE_BUDGET
     ) return null;
     const playerUpgrades = normalizePlayerUpgrades(candidate.playerUpgrades, candidate.playerDeck, firmwareBudget as number);
+    const playerCardLevels = normalizeCardLevels(candidate.playerCardLevels);
     const playerTowerWeapons = normalizeTowerWeapons(candidate.playerTowerWeapons);
-    if (!playerUpgrades || !playerTowerWeapons) return null;
+    if (!playerUpgrades || !playerCardLevels || !playerTowerWeapons) return null;
     const config: MatchConfig = {
       modeId: candidate.modeId,
       playerDeck: [...candidate.playerDeck],
+      playerCardLevels,
       playerUpgrades,
       playerTowerWeapons,
     };

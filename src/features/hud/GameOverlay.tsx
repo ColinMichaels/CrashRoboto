@@ -1,7 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import type { AppliedVictoryChests } from '../../game/core/collection';
 import { PILOTS, type PilotId } from '../../game/core/pilots';
 import type { MatchSnapshot } from '../../game/core/types';
 import type { MatchProgressAward } from '../../game/core/progression';
+import { VictoryCacheOverlay } from './VictoryCacheOverlay';
 
 interface GameOverlayProps {
   snapshot: MatchSnapshot;
@@ -10,10 +12,12 @@ interface GameOverlayProps {
   onResume: () => void;
   onReturnToLobby: () => void;
   progressAward: MatchProgressAward | null;
+  cacheReward: AppliedVictoryChests | null;
 }
 
-export function GameOverlay({ snapshot, pilotId, onRestart, onResume, onReturnToLobby, progressAward }: GameOverlayProps) {
+export function GameOverlay({ snapshot, pilotId, onRestart, onResume, onReturnToLobby, progressAward, cacheReward }: GameOverlayProps) {
   const primaryActionRef = useRef<HTMLButtonElement>(null);
+  const [showCache, setShowCache] = useState(false);
 
   useEffect(() => {
     if (snapshot.phase !== 'paused' && snapshot.phase !== 'ended') return;
@@ -25,8 +29,16 @@ export function GameOverlay({ snapshot, pilotId, onRestart, onResume, onReturnTo
     };
   }, [snapshot.phase]);
 
+  useEffect(() => {
+    setShowCache(false);
+  }, [snapshot.phase]);
+
   if (snapshot.phase === 'playing') return null;
   if (snapshot.phase === 'menu') return null;
+
+  if (snapshot.phase === 'ended' && showCache && cacheReward) {
+    return <VictoryCacheOverlay reward={cacheReward} onContinue={onReturnToLobby} />;
+  }
 
   if (snapshot.phase === 'paused') {
     return (
@@ -65,8 +77,19 @@ export function GameOverlay({ snapshot, pilotId, onRestart, onResume, onReturnTo
         <i />
         <span><small>XP EARNED</small><strong>+{progressAward?.xp ?? 0}</strong></span>
       </div>
+      {cacheReward && (
+        <div className="result-cache-teaser" aria-label={`${cacheReward.reveals.length} bonus ${cacheReward.reveals.length === 1 ? 'chest' : 'chests'} recovered`}>
+          <span className="result-cache-icon" style={{ '--cache-art': `url("${import.meta.env.BASE_URL}assets/game/vault-sprites.png")` } as CSSProperties} aria-hidden="true" />
+          <span><small>VICTORY DROP</small><strong>{cacheReward.reveals.length} BONUS {cacheReward.reveals.length === 1 ? 'CACHE' : 'CACHES'}</strong></span>
+        </div>
+      )}
       <div className="overlay-actions">
-        <button ref={primaryActionRef} className="primary-action compact" type="button" onClick={onRestart} data-testid="restart-match">RUN IT BACK</button>
+        {cacheReward ? (
+          <button ref={primaryActionRef} className="primary-action compact" type="button" onClick={() => setShowCache(true)}>OPEN {cacheReward.reveals.length} {cacheReward.reveals.length === 1 ? 'CACHE' : 'CACHES'}</button>
+        ) : (
+          <button ref={primaryActionRef} className="primary-action compact" type="button" onClick={onRestart} data-testid="restart-match">RUN IT BACK</button>
+        )}
+        {cacheReward && <button className="secondary-action" type="button" onClick={onRestart} data-testid="restart-match">RUN IT BACK</button>}
         <button className="secondary-action" type="button" onClick={onReturnToLobby}>EDIT LOADOUT</button>
       </div>
     </section>

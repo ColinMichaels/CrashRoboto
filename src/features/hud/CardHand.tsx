@@ -59,6 +59,7 @@ export function CardHand({ snapshot, onSelect, onBeginDrag, onCancelDrag, onInsp
   const charge = snapshot.charge.player;
   const interactive = snapshot.phase === 'playing';
   const nextCard = CARDS[snapshot.next.player];
+  const nextMasteryLevel = snapshot.cardLevels.player[nextCard.id];
   const nextIsRobot = nextCard.category === 'unit' || nextCard.category === 'commander';
   const nextUpgradeBadge = getRobotUpgradeBadgeInfo(
     nextIsRobot ? snapshot.upgrades.player[nextCard.id as RobotCardId] : undefined,
@@ -66,6 +67,7 @@ export function CardHand({ snapshot, onSelect, onBeginDrag, onCancelDrag, onInsp
   const nextUpgradeCopy = nextUpgradeBadge
     ? ` Upgraded to Mark ${nextUpgradeBadge.mark} with ${nextUpgradeBadge.tierPoints} installed ${nextUpgradeBadge.tierPoints === 1 ? 'tier' : 'tiers'}.`
     : '';
+  const nextMasteryCopy = ` Permanent Mastery Mark ${nextMasteryLevel}.`;
   const overdrive = getOverdrivePresentation(snapshot);
   const overdriveEnabled = interactive && snapshot.commander.player.available;
 
@@ -74,6 +76,7 @@ export function CardHand({ snapshot, onSelect, onBeginDrag, onCancelDrag, onInsp
       <div className="cards">
         {snapshot.hands.player.map((cardId, index) => {
           const card = CARDS[cardId];
+          const masteryLevel = snapshot.cardLevels.player[cardId];
           const affordable = charge + 0.001 >= card.cost;
           const uniqueBlocked = card.category === 'commander' && snapshot.commander.player.deployed;
           const selected = snapshot.selected === cardId;
@@ -109,10 +112,11 @@ export function CardHand({ snapshot, onSelect, onBeginDrag, onCancelDrag, onInsp
                 }}
                 disabled={!interactive || uniqueBlocked}
                 aria-pressed={selected}
-                aria-label={`${index + 1}. ${card.name}, ${CATEGORY_LABELS[card.category].toLowerCase()}, ${TECH_CLASS_LABELS[card.techClass].toLowerCase()} tech, costs ${card.cost} charge.${upgradeCopy} ${card.description}.${availability}`}
+                aria-label={`${index + 1}. ${card.name}, ${CATEGORY_LABELS[card.category].toLowerCase()}, ${TECH_CLASS_LABELS[card.techClass].toLowerCase()} tech, costs ${card.cost} charge. Permanent Mastery Mark ${masteryLevel}.${upgradeCopy} ${card.description}.${availability}`}
               >
                 <span className="card-cost" aria-hidden="true">{card.cost}</span>
                 <UpgradeBadge info={upgradeBadge} className="card-upgrade-badge" />
+                {masteryLevel > 1 && <span className="card-mastery-badge" aria-hidden="true">MK {masteryLevel}</span>}
                 <span className="card-tech">{TECH_CLASS_LABELS[card.techClass]}</span>
                 <span className={`card-portrait portrait-${card.sheet}`} style={getCardSpriteStyle(card.sheet, card.frame)} aria-hidden="true" />
                 <span className="card-meta">
@@ -142,10 +146,11 @@ export function CardHand({ snapshot, onSelect, onBeginDrag, onCancelDrag, onInsp
 
       <div
         className={`next-card ${cardClass(nextCard)}`}
-        aria-label={`Next card: ${nextCard.name}, ${CATEGORY_LABELS[nextCard.category].toLowerCase()}, ${TECH_CLASS_LABELS[nextCard.techClass].toLowerCase()} tech.${nextUpgradeCopy}`}
+        aria-label={`Next card: ${nextCard.name}, ${CATEGORY_LABELS[nextCard.category].toLowerCase()}, ${TECH_CLASS_LABELS[nextCard.techClass].toLowerCase()} tech.${nextMasteryCopy}${nextUpgradeCopy}`}
       >
         <span className="next-label">NEXT</span>
         <UpgradeBadge info={nextUpgradeBadge} className="next-card-upgrade-badge" />
+        {nextMasteryLevel > 1 && <span className="next-card-mastery-badge" aria-hidden="true">MK {nextMasteryLevel}</span>}
         <span className="next-tech">{TECH_CLASS_LABELS[nextCard.techClass]}</span>
         <i className={`card-portrait next-portrait portrait-${nextCard.sheet}`} style={getCardSpriteStyle(nextCard.sheet, nextCard.frame)} aria-hidden="true" />
         <span className="next-meta">

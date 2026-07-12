@@ -18,16 +18,21 @@ import {
   PROGRAM_TOWER_DAMAGE_MULTIPLIER,
   ROBOTS,
   TOWER_COMBAT_RADIUS,
+  cloneCardLevels,
   cloneRobotUpgrades,
+  createDefaultCardLevels,
   createDefaultMatchConfig,
   createDefaultTowerWeapons,
   createEmptyRobotUpgrades,
   createTowers,
+  getEffectiveInstallationStats,
+  getEffectiveProgramDamage,
   getEffectiveRobotStats,
   getLaneX,
   getMatchStage,
   getOpponent,
   getUpgradeCost,
+  normalizeCardLevels,
   normalizePlayerUpgrades,
   validateMatchConfig,
 } from './content';
@@ -37,17 +42,21 @@ import {
 import { SCORE_AWARDS } from './progression';
 import { evaluatePlacement } from './placementFeedback';
 import type {
+  CardLevelBook,
+  CardLevelMap,
   CardId,
   CombatEntityRef,
   CommanderAbilityState,
   GameCommand,
   GameEvent,
   InstallationState,
+  InstallationKind,
   Lane,
   MatchConfig,
   MatchResult,
   MatchSnapshot,
   ProjectileKind,
+  ProgramKind,
   ProgramZoneState,
   RobotKind,
   RobotCardId,
@@ -126,6 +135,13 @@ const createUpgradeBook = (
   enemy: createEmptyRobotUpgrades(),
 });
 
+const createCardLevelBook = (
+  playerCardLevels: CardLevelMap = createDefaultCardLevels(),
+): CardLevelBook => ({
+  player: cloneCardLevels(playerCardLevels),
+  enemy: createDefaultCardLevels(),
+});
+
 const isInstallation = (structure: StructureState): structure is InstallationState =>
   'remainingMs' in structure;
 
@@ -153,8 +169,10 @@ export class MatchEngine {
   private selected: CardId | null = null;
   private commanderCooldown: Record<Team, number> = { player: 0, enemy: 0 };
   private configuredPlayerUpgrades = createEmptyRobotUpgrades();
+  private configuredPlayerCardLevels = createDefaultCardLevels();
   private configuredPlayerTowerWeapons = createDefaultTowerWeapons();
   private upgrades = createUpgradeBook();
+  private cardLevels = createCardLevelBook();
   private result: MatchResult | null = null;
   private guidance: string | null = null;
   private guidanceMs = 0;
@@ -311,6 +329,10 @@ export class MatchEngine {
           Object.entries(this.upgrades.enemy).map(([robotId, state]) => [robotId, { ...state }]),
         ) as RobotUpgradeBook['enemy'],
       },
+      cardLevels: {
+        player: cloneCardLevels(this.cardLevels.player),
+        enemy: cloneCardLevels(this.cardLevels.enemy),
+      },
       result: this.result ? { ...this.result } : null,
       guidance: this.guidance,
       revision: this.revision,
@@ -330,8 +352,14 @@ export class MatchEngine {
       player: [...config.playerDeck],
       enemy: [...DEFAULT_ENEMY_DECK],
     };
-    this.configuredPlayerUpgrades = normalizePlayerUpgrades(config.playerUpgrades, config.playerDeck)
+    this.configuredPlayerUpgrades = normalizePlayerUpgrades(
+      config.playerUpgrades,
+      config.playerDeck,
+      config.playerFirmwareBudget,
+    )
       ?? createEmptyRobotUpgrades();
+    this.configuredPlayerCardLevels = normalizeCardLevels(config.playerCardLevels)
+      ?? createDefaultCardLevels();
     this.configuredPlayerTowerWeapons = config.playerTowerWeapons
       ? { ...config.playerTowerWeapons }
       : createDefaultTowerWeapons();
@@ -354,6 +382,7 @@ export class MatchEngine {
     this.selected = null;
     this.commanderCooldown = { player: 0, enemy: 0 };
     this.upgrades = createUpgradeBook(this.configuredPlayerUpgrades);
+    this.cardLevels = createCardLevelBook(this.configuredPlayerCardLevels);
     this.result = null;
     this.guidance = phase === 'playing' ? 'OPENING WINDOW — CHARGE REGEN +25%' : null;
     this.guidanceMs = phase === 'playing' ? 4_000 : 0;
@@ -415,9 +444,9 @@ export class MatchEngine {
     this.playDebounce[team] = 250;
 
     if (card.category === 'program') {
-      this.resolveProgram(team, cardId as 'emp' | 'nano', x, y);
+      this.resolveProgram(team, cardId as ProgramKind, x, y);
     } else if (card.category === 'installation') {
-      this.placeInstallation(team, cardId as 'sentry' | 'foundry', x, y);
+      this.placeInstallation(team, cardId as InstallationKind, x, y);
     } else {
       this.spawnUnit(team, cardId as RobotKind, x, y);
     }
@@ -447,6 +476,7 @@ export class MatchEngine {
 
   private spawnUnit(team: Team, kind: RobotKind, x: number, y: number): UnitState {
     const definition = ROBOTS[kind];
+    const stats = getEffectiveRobotStats(kind, undefined, this.getUnitCardLevel(team, kind));
     const lane: Lane = x < 800 ? 'left' : 'right';
     const unit: UnitState = {
       id: `${team}-${kind}-${++this.unitCounter}`,
@@ -455,20 +485,25 @@ export class MatchEngine {
       lane,
       x: Math.max(80, Math.min(1520, x)),
       y,
-      hp: definition.maxHp,
-      maxHp: definition.maxHp,
+      hp: stats.maxHp,
+      maxHp: stats.maxHp,
+      shieldHp: stats.maxShieldHp,
+      maxShieldHp: stats.maxShieldHp,
       cooldown: 0.25,
       radius: definition.radius,
       facing: team === 'player' ? -Math.PI / 2 : Math.PI / 2,
       disabledMs: 0,
+      slowMs: 0,
+      abilityCooldownMs: definition.initialAbilityCooldownMs ?? 0,
       overdriveMs: 0,
     };
     this.units.push(unit);
     return unit;
   }
 
-  private placeInstallation(team: Team, kind: 'sentry' | 'foundry', x: number, y: number): void {
+  private placeInstallation(team: Team, kind: InstallationKind, x: number, y: number): void {
     const definition = INSTALLATIONS[kind];
+    const stats = getEffectiveInstallationStats(kind, this.cardLevels[team][kind]);
     this.installations.push({
       id: `${team}-${kind}-${++this.installationCounter}`,
       kind,
@@ -476,8 +511,8 @@ export class MatchEngine {
       lane: x < 800 ? 'left' : 'right',
       x,
       y,
-      hp: definition.maxHp,
-      maxHp: definition.maxHp,
+      hp: stats.maxHp,
+      maxHp: stats.maxHp,
       radius: definition.radius,
       cooldownMs: definition.activationDelayMs,
       remainingMs: definition.lifetimeMs,
@@ -486,30 +521,31 @@ export class MatchEngine {
     this.emit({ type: 'installationPlaced', team, kind, x, y });
   }
 
-  private resolveProgram(team: Team, kind: 'emp' | 'nano', x: number, y: number): void {
+  private resolveProgram(team: Team, kind: ProgramKind, x: number, y: number): void {
     const definition = PROGRAMS[kind];
+    const damage = getEffectiveProgramDamage(kind, this.cardLevels[team][kind]);
     if (kind === 'emp') {
       const opponent = getOpponent(team);
       for (const unit of this.units) {
         if (unit.team !== opponent || unit.hp <= 0 || distance(unit, { x, y }) > definition.radius) continue;
-        this.damageUnit(unit, definition.damage, 'program', team);
+        this.damageUnit(unit, damage, 'program', team);
         unit.disabledMs = Math.max(unit.disabledMs, definition.disableMs ?? 0);
         unit.overdriveMs = 0;
-        this.emit({ type: 'impact', x: unit.x, y: unit.y, team, amount: definition.damage });
+        this.emit({ type: 'impact', x: unit.x, y: unit.y, team, amount: damage });
       }
       for (const installation of this.installations) {
         if (installation.team !== opponent || installation.hp <= 0 || distance(installation, { x, y }) > definition.radius) continue;
-        this.damageInstallation(installation, definition.damage, 'program', team);
+        this.damageInstallation(installation, damage, 'program', team);
         installation.disabledMs = Math.max(installation.disabledMs, definition.disableMs ?? 0);
-        this.emit({ type: 'impact', x: installation.x, y: installation.y, team, amount: definition.damage });
+        this.emit({ type: 'impact', x: installation.x, y: installation.y, team, amount: damage });
       }
-      const towerDamage = definition.damage * PROGRAM_TOWER_DAMAGE_MULTIPLIER;
+      const towerDamage = damage * PROGRAM_TOWER_DAMAGE_MULTIPLIER;
       for (const tower of this.towers) {
         if (tower.team !== opponent || tower.hp <= 0 || distance(tower, { x, y }) > definition.radius) continue;
         this.damageTower(tower, towerDamage, 'program', team);
         this.emit({ type: 'impact', x: tower.x, y: tower.y, team, amount: towerDamage });
       }
-    } else {
+    } else if (kind === 'nano') {
       this.zones.push({
         id: `${team}-nano-${++this.zoneCounter}`,
         kind: 'nano',
@@ -520,6 +556,36 @@ export class MatchEngine {
         remainingMs: definition.durationMs,
         tickAccumulatorMs: 0,
       });
+    } else {
+      const opponent = getOpponent(team);
+      const center = { x, y };
+      for (const unit of this.units) {
+        if (unit.team !== opponent || unit.hp <= 0 || distance(unit, center) > definition.radius) continue;
+        this.damageUnit(unit, damage, 'program', team);
+        if (unit.hp > 0) {
+          const dx = x - unit.x;
+          const dy = y - unit.y;
+          const length = Math.hypot(dx, dy);
+          if (length > 0.001) {
+            const pull = Math.min(length, definition.pullDistance ?? 0);
+            unit.x += (dx / length) * pull;
+            unit.y += (dy / length) * pull;
+          }
+          unit.slowMs = Math.max(unit.slowMs, definition.slowMs ?? 0);
+        }
+        this.emit({ type: 'impact', x: unit.x, y: unit.y, team, amount: damage });
+      }
+      for (const installation of this.installations) {
+        if (installation.team !== opponent || installation.hp <= 0 || distance(installation, center) > definition.radius) continue;
+        this.damageInstallation(installation, damage, 'program', team);
+        this.emit({ type: 'impact', x: installation.x, y: installation.y, team, amount: damage });
+      }
+      const towerDamage = damage * PROGRAM_TOWER_DAMAGE_MULTIPLIER;
+      for (const tower of this.towers) {
+        if (tower.team !== opponent || tower.hp <= 0 || distance(tower, center) > definition.radius) continue;
+        this.damageTower(tower, towerDamage, 'program', team);
+        this.emit({ type: 'impact', x: tower.x, y: tower.y, team, amount: towerDamage });
+      }
     }
     this.emit({ type: 'programCast', team, kind, x, y, radius: definition.radius });
   }
@@ -531,7 +597,10 @@ export class MatchEngine {
       zone.tickAccumulatorMs += dtMs;
       while (zone.tickAccumulatorMs >= definition.tickIntervalMs) {
         zone.tickAccumulatorMs -= definition.tickIntervalMs;
-        this.applyNanoTick(zone, definition.damage);
+        this.applyNanoTick(
+          zone,
+          getEffectiveProgramDamage('nano', this.cardLevels[zone.team].nano),
+        );
       }
     }
   }
@@ -582,6 +651,13 @@ export class MatchEngine {
         continue;
       }
 
+      if (installation.kind === 'firewall') continue;
+
+      const damage = getEffectiveInstallationStats(
+        installation.kind,
+        this.cardLevels[installation.team][installation.kind],
+      ).damage;
+
       const targets = this.units
         .filter((unit) => unit.team !== installation.team && unit.hp > 0 && unit.lane === installation.lane && distance(unit, installation) <= definition.range)
         .sort((a, b) => distance(a, installation) - distance(b, installation));
@@ -591,9 +667,9 @@ export class MatchEngine {
         definition.projectile ?? 'bullet',
         this.installationRef(installation),
         this.unitRef(target),
-        definition.damage,
+        damage,
       );
-      this.damageUnit(target, definition.damage, 'projectile', installation.team, attackId);
+      this.damageUnit(target, damage, 'projectile', installation.team, attackId);
       installation.cooldownMs = definition.attackInterval * 1000;
       const secondary = targets.find((candidate) => candidate.id !== target.id && distance(candidate, target) <= 75);
       if (secondary) {
@@ -601,9 +677,9 @@ export class MatchEngine {
           definition.projectile ?? 'bullet',
           this.unitRef(target),
           this.unitRef(secondary),
-          definition.damage * 0.5,
+          damage * 0.5,
         );
-        this.damageUnit(secondary, definition.damage * 0.5, 'projectile', installation.team, secondaryAttackId);
+        this.damageUnit(secondary, damage * 0.5, 'projectile', installation.team, secondaryAttackId);
       }
     }
   }
@@ -672,8 +748,15 @@ export class MatchEngine {
       const definition = ROBOTS[unit.kind];
       const stats = this.getUnitStats(unit);
       const boosted = this.isOverdriveBoosted(unit);
-      unit.cooldown = Math.max(0, unit.cooldown - dt * (boosted ? 1.4 : 1));
+      const slowed = unit.slowMs > 0;
+      const slowMultiplier = slowed ? (PROGRAMS.gravity.slowMultiplier ?? 1) : 1;
+      unit.cooldown = Math.max(
+        0,
+        unit.cooldown - dt * (boosted ? 1.4 : 1) * slowMultiplier,
+      );
       unit.disabledMs = Math.max(0, unit.disabledMs - dtMs);
+      unit.slowMs = Math.max(0, unit.slowMs - dtMs);
+      unit.abilityCooldownMs = Math.max(0, unit.abilityCooldownMs - dtMs);
       unit.overdriveMs = Math.max(0, unit.overdriveMs - dtMs);
       if (unit.disabledMs > 0) {
         unit.overdriveMs = 0;
@@ -706,8 +789,17 @@ export class MatchEngine {
         const attackDistance = stats.range + enemyUnit.radius * 0.35;
         if (distance(unit, enemyUnit) <= attackDistance) {
           if (unit.cooldown === 0) this.attackUnit(unit, enemyUnit);
+        } else if (this.tryDashToward(unit, enemyUnit, attackDistance)) {
+          if (distance(unit, enemyUnit) <= attackDistance && unit.cooldown === 0) {
+            this.attackUnit(unit, enemyUnit);
+          }
         } else {
-          this.moveToward(unit, enemyUnit, stats.speed * (boosted ? 1.25 : 1), dt);
+          this.moveToward(
+            unit,
+            enemyUnit,
+            stats.speed * (boosted ? 1.25 : 1) * slowMultiplier,
+            dt,
+          );
         }
         continue;
       }
@@ -718,9 +810,18 @@ export class MatchEngine {
       const attackDistance = stats.range + structurePadding;
       if (distance(unit, structure) <= attackDistance) {
         if (unit.cooldown === 0) this.attackStructure(unit, structure);
+      } else if (this.tryDashToward(unit, structure, attackDistance)) {
+        if (distance(unit, structure) <= attackDistance && unit.cooldown === 0) {
+          this.attackStructure(unit, structure);
+        }
       } else {
         const destination = isInstallation(structure) ? structure : this.getRouteDestination(unit, structure);
-        this.moveToward(unit, destination, stats.speed * (boosted ? 1.25 : 1), dt);
+        this.moveToward(
+          unit,
+          destination,
+          stats.speed * (boosted ? 1.25 : 1) * slowMultiplier,
+          dt,
+        );
       }
     }
   }
@@ -767,6 +868,37 @@ export class MatchEngine {
       if (unit.y < PLAYER_BRIDGE_EDGE_Y) return { x: getLaneX(unit.lane, 345), y: 345 };
     }
     return structure;
+  }
+
+  private tryDashToward(
+    unit: UnitState,
+    target: { x: number; y: number },
+    attackDistance: number,
+  ): boolean {
+    if (unit.kind !== 'wraith' || unit.abilityCooldownMs > 0) return false;
+    const definition = ROBOTS.wraith;
+    const dx = target.x - unit.x;
+    const dy = target.y - unit.y;
+    const length = Math.hypot(dx, dy);
+    const dash = Math.min(definition.dashDistance ?? 0, Math.max(0, length - attackDistance));
+    if (dash <= 0.001 || length <= 0.001) return false;
+    const fromX = unit.x;
+    const fromY = unit.y;
+    unit.x += (dx / length) * dash;
+    unit.y += (dy / length) * dash;
+    unit.facing = Math.atan2(dy, dx);
+    unit.abilityCooldownMs = definition.abilityCooldownMs ?? 0;
+    this.emit({
+      type: 'unitDashed',
+      unitId: unit.id,
+      team: unit.team,
+      kind: 'wraith',
+      fromX,
+      fromY,
+      toX: unit.x,
+      toY: unit.y,
+    });
+    return true;
   }
 
   private moveToward(unit: UnitState, destination: { x: number; y: number }, speed: number, dt: number): void {
@@ -822,19 +954,44 @@ export class MatchEngine {
     return attackId;
   }
 
+  private reduceIncomingDamage(
+    target: { id: string; team: Team; x: number; y: number },
+    amount: number,
+    cause: 'projectile' | 'program' | 'decay',
+  ): number {
+    if (cause === 'decay') return amount;
+    const firewall = this.installations.find((installation) =>
+      installation.kind === 'firewall' &&
+      installation.id !== target.id &&
+      installation.team === target.team &&
+      installation.hp > 0 &&
+      installation.remainingMs > 0 &&
+      installation.disabledMs <= 0 &&
+      distance(installation, target) <= (INSTALLATIONS.firewall.auraRadius ?? 0),
+    );
+    return firewall
+      ? amount * (1 - (INSTALLATIONS.firewall.damageReduction ?? 0))
+      : amount;
+  }
+
   private damageUnit(
     target: UnitState,
     amount: number,
     cause: 'projectile' | 'program' | 'decay',
     byTeam?: Team,
     attackId?: number,
-  ): void {
-    if (target.hp <= 0 || amount <= 0) return;
-    target.hp = Math.max(0, target.hp - amount);
+  ): number {
+    if (target.hp <= 0 || amount <= 0) return 0;
+    const applied = this.reduceIncomingDamage(target, amount, cause);
+    const before = target.hp + target.shieldHp;
+    const absorbed = Math.min(target.shieldHp, applied);
+    target.shieldHp = Math.max(0, target.shieldHp - absorbed);
+    target.hp = Math.max(0, target.hp - (applied - absorbed));
     if (target.hp === 0) {
       if (byTeam && byTeam !== target.team) this.battleScore[byTeam] += SCORE_AWARDS.unit;
       this.emit({ type: 'entityDestroyed', entity: this.unitRef(target), cause, byTeam, attackId });
     }
+    return before - target.hp - target.shieldHp;
   }
 
   private damageInstallation(
@@ -843,13 +1000,16 @@ export class MatchEngine {
     cause: 'projectile' | 'program' | 'decay',
     byTeam?: Team,
     attackId?: number,
-  ): void {
-    if (target.hp <= 0 || amount <= 0) return;
-    target.hp = Math.max(0, target.hp - amount);
+  ): number {
+    if (target.hp <= 0 || amount <= 0) return 0;
+    const applied = this.reduceIncomingDamage(target, amount, cause);
+    const before = target.hp;
+    target.hp = Math.max(0, target.hp - applied);
     if (target.hp === 0) {
       if (byTeam && byTeam !== target.team) this.battleScore[byTeam] += SCORE_AWARDS.installation;
       this.emit({ type: 'entityDestroyed', entity: this.installationRef(target), cause, byTeam, attackId });
     }
+    return before - target.hp;
   }
 
   private damageTower(
@@ -858,9 +1018,11 @@ export class MatchEngine {
     cause: 'projectile' | 'program' | 'decay',
     byTeam?: Team,
     attackId?: number,
-  ): void {
-    if (target.hp <= 0 || amount <= 0) return;
-    target.hp = Math.max(0, target.hp - amount);
+  ): number {
+    if (target.hp <= 0 || amount <= 0) return 0;
+    const applied = this.reduceIncomingDamage(target, amount, cause);
+    const before = target.hp;
+    target.hp = Math.max(0, target.hp - applied);
     if (target.hp === 0) {
       if (byTeam && byTeam !== target.team) {
         this.battleScore[byTeam] += target.kind === 'core' ? SCORE_AWARDS.core : SCORE_AWARDS.relay;
@@ -868,6 +1030,7 @@ export class MatchEngine {
       this.emit({ type: 'entityDestroyed', entity: this.towerRef(target), cause, byTeam, attackId });
       this.onTowerDestroyed(target);
     }
+    return before - target.hp;
   }
 
   private damageStructure(
@@ -876,9 +1039,10 @@ export class MatchEngine {
     cause: 'projectile' | 'program' | 'decay',
     byTeam?: Team,
     attackId?: number,
-  ): void {
-    if (isInstallation(target)) this.damageInstallation(target, amount, cause, byTeam, attackId);
-    else this.damageTower(target, amount, cause, byTeam, attackId);
+  ): number {
+    return isInstallation(target)
+      ? this.damageInstallation(target, amount, cause, byTeam, attackId)
+      : this.damageTower(target, amount, cause, byTeam, attackId);
   }
 
   private attackUnit(attacker: UnitState, target: UnitState): void {
@@ -891,7 +1055,14 @@ export class MatchEngine {
       stats.damage,
       definition.splashRadius,
     );
-    this.damageUnit(target, stats.damage, 'projectile', attacker.team, attackId);
+    const actualDamage = this.damageUnit(
+      target,
+      stats.damage,
+      'projectile',
+      attacker.team,
+      attackId,
+    );
+    this.applyLifesteal(attacker, actualDamage);
     attacker.cooldown = definition.attackInterval;
     if (!definition.splashRadius) return;
     for (const candidate of this.units) {
@@ -912,13 +1083,39 @@ export class MatchEngine {
       this.structureRef(structure),
       stats.damage,
     );
-    this.damageStructure(structure, stats.damage, 'projectile', attacker.team, attackId);
+    const actualDamage = this.damageStructure(
+      structure,
+      stats.damage,
+      'projectile',
+      attacker.team,
+      attackId,
+    );
+    this.applyLifesteal(attacker, actualDamage);
     attacker.cooldown = definition.attackInterval;
+  }
+
+  private applyLifesteal(attacker: UnitState, actualDamage: number): void {
+    const lifesteal = ROBOTS[attacker.kind].lifesteal ?? 0;
+    if (lifesteal <= 0 || actualDamage <= 0 || attacker.hp <= 0 || attacker.hp >= attacker.maxHp) return;
+    const before = attacker.hp;
+    attacker.hp = Math.min(attacker.maxHp, attacker.hp + actualDamage * lifesteal);
+    const healed = attacker.hp - before;
+    if (healed > 0) {
+      this.emit({ type: 'impact', x: attacker.x, y: attacker.y, team: attacker.team, amount: -healed });
+    }
   }
 
   private getUnitStats(unit: UnitState) {
     const upgrades = unit.kind === 'microbot' ? undefined : this.upgrades[unit.team][unit.kind];
-    return getEffectiveRobotStats(unit.kind, upgrades);
+    return getEffectiveRobotStats(
+      unit.kind,
+      upgrades,
+      this.getUnitCardLevel(unit.team, unit.kind),
+    );
+  }
+
+  private getUnitCardLevel(team: Team, kind: RobotKind) {
+    return kind === 'microbot' ? 1 : this.cardLevels[team][kind];
   }
 
   private tryUpgradeRobot(team: Team, robotId: RobotCardId, stat: UpgradeStat): boolean {

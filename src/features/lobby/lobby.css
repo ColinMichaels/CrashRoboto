@@ -843,6 +843,11 @@ button.lobby-card:hover:not(:disabled) {
   width: 103%;
 }
 
+.lobby-card-portrait.portrait-vault {
+  top: -4%;
+  width: 96%;
+}
+
 .lobby-card-cost {
   position: absolute;
   top: 3%;
@@ -942,6 +947,11 @@ button.lobby-card:hover:not(:disabled) {
   width: 78%;
 }
 
+.lobby-card-shell-loadout .lobby-card-portrait.portrait-vault {
+  top: 47%;
+  width: 74%;
+}
+
 .lobby-card-lab-button:hover {
   border-color: var(--lobby-card-accent, var(--cyan));
   background: var(--lobby-card-accent, var(--cyan));
@@ -954,6 +964,73 @@ button.lobby-card:hover:not(:disabled) {
   left: 5%;
   padding: 0.3em 0.48em;
   font-size: clamp(0.24rem, 0.4vw, 0.42rem);
+}
+
+.lobby-card-mastery-badge {
+  position: absolute;
+  right: 5%;
+  bottom: 17%;
+  z-index: 6;
+  padding: 0.3em 0.48em;
+  border: 1px solid rgba(246, 196, 83, 0.72);
+  background: rgba(24, 17, 4, 0.92);
+  color: var(--amber);
+  font-size: clamp(0.24rem, 0.4vw, 0.42rem);
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  line-height: 1;
+}
+
+.lobby-card.is-vault-locked {
+  border-color: rgba(147, 163, 164, 0.42);
+  box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.76);
+  cursor: pointer;
+}
+
+.lobby-card.is-vault-locked .lobby-card-portrait {
+  filter: grayscale(0.92) brightness(0.34) drop-shadow(0 5px 7px rgba(0, 0, 0, 0.72));
+}
+
+.lobby-card.is-vault-locked .lobby-card-cost,
+.lobby-card.is-vault-locked .lobby-card-name {
+  border-color: #697978;
+  color: #899695;
+}
+
+.lobby-card.is-vault-locked::after {
+  background: #60706f;
+}
+
+.lobby-card-lock {
+  position: absolute;
+  top: 45%;
+  left: 50%;
+  z-index: 7;
+  display: grid;
+  min-width: 52%;
+  justify-items: center;
+  gap: 0.35em;
+  transform: translate(-50%, -50%);
+  color: #aab4b3;
+}
+
+.lobby-card-lock svg {
+  width: clamp(16px, 1.55vw, 24px);
+  fill: rgba(3, 12, 15, 0.86);
+  stroke: currentColor;
+  stroke-linecap: square;
+  stroke-linejoin: bevel;
+  stroke-width: 1.8;
+}
+
+.lobby-card-lock small {
+  width: 100%;
+  padding: 0.34em 0.25em;
+  border: 1px solid rgba(152, 169, 168, 0.42);
+  background: rgba(3, 11, 14, 0.9);
+  font-size: clamp(0.25rem, 0.42vw, 0.43rem);
+  font-weight: 900;
+  letter-spacing: 0.08em;
 }
 
 .lobby-card.is-empty {
@@ -1017,6 +1094,11 @@ button.lobby-card:hover:not(:disabled) {
 .lobby-card-archive .lobby-card-portrait.portrait-system {
   top: 47%;
   width: 64%;
+}
+
+.lobby-card-archive .lobby-card-portrait.portrait-vault {
+  top: 47%;
+  width: 61%;
 }
 
 .lobby-card-archive .lobby-card-cost {
@@ -1232,6 +1314,255 @@ button.lobby-card:hover:not(:disabled) {
   margin: -1px !important;
   clip: rect(0, 0, 0, 0) !important;
   white-space: nowrap !important;
+}
+
+.collection-intel-panel {
+  --intel-accent: var(--cyan);
+  position: absolute;
+  top: 10.2%;
+  right: 1.45%;
+  bottom: 11.25%;
+  z-index: 48;
+  display: grid;
+  width: min(23%, 360px);
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: auto auto minmax(0, 31%) auto auto;
+  gap: 2.3%;
+  padding: 1.5% 1.4%;
+  border: 1px solid color-mix(in srgb, var(--intel-accent) 54%, transparent);
+  background: linear-gradient(180deg, rgba(8, 22, 28, 0.99), rgba(3, 12, 17, 0.995));
+  box-shadow: -18px 0 45px rgba(0, 0, 0, 0.48), inset 0 0 0 1px rgba(207, 255, 249, 0.04);
+  clip-path: polygon(11px 0, 100% 0, 100% calc(100% - 11px), calc(100% - 11px) 100%, 0 100%, 0 11px);
+}
+
+.collection-intel-panel.category-program { --intel-accent: var(--program); }
+.collection-intel-panel.category-installation { --intel-accent: var(--install); }
+.collection-intel-panel.category-commander { --intel-accent: var(--commander); }
+
+.collection-intel-panel > header,
+.collection-intel-status,
+.collection-intel-fragments > span,
+.collection-intel-mastery > span {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4%;
+}
+
+.collection-intel-panel > header {
+  padding-bottom: 4%;
+  border-bottom: 1px solid rgba(108, 208, 199, 0.22);
+}
+
+.collection-intel-panel > header > span {
+  min-width: 0;
+}
+
+.collection-intel-panel h2,
+.collection-intel-panel p {
+  margin: 0;
+}
+
+.collection-intel-panel header small {
+  color: var(--intel-accent);
+  font-size: clamp(0.3rem, 0.5vw, 0.52rem);
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.collection-intel-panel h2 {
+  overflow: hidden;
+  margin-top: 0.25em;
+  color: #edfffc;
+  font-size: clamp(0.76rem, 1.42vw, 1.4rem);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collection-intel-panel header button {
+  display: grid;
+  width: clamp(22px, 2.2vw, 34px);
+  aspect-ratio: 1;
+  flex: 0 0 auto;
+  padding: 0;
+  place-items: center;
+  border: 1px solid rgba(145, 194, 191, 0.34);
+  background: transparent;
+  color: #9bb7b4;
+  cursor: pointer;
+}
+
+.collection-intel-panel header button:hover {
+  border-color: var(--intel-accent);
+  color: var(--intel-accent);
+}
+
+.collection-intel-panel header button svg {
+  width: 64%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+}
+
+.collection-intel-status {
+  color: #77918f;
+  font-size: clamp(0.28rem, 0.45vw, 0.47rem);
+  font-weight: 900;
+  letter-spacing: 0.1em;
+}
+
+.collection-intel-lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+  color: #a4aeac;
+}
+
+.collection-intel-lock.is-online {
+  color: var(--amber);
+}
+
+.collection-intel-lock svg {
+  width: 1.2em;
+  fill: rgba(3, 12, 15, 0.84);
+  stroke: currentColor;
+  stroke-width: 1.8;
+}
+
+.collection-intel-lock > i {
+  width: 0.78em;
+  aspect-ratio: 1;
+  border: 1px solid currentColor;
+  background: currentColor;
+  transform: rotate(45deg);
+}
+
+.collection-intel-portrait {
+  width: auto;
+  height: 100%;
+  max-width: 82%;
+  aspect-ratio: 1;
+  align-self: center;
+  justify-self: center;
+  background-repeat: no-repeat;
+  filter: drop-shadow(0 9px 9px rgba(0, 0, 0, 0.64));
+}
+
+.collection-intel-panel.is-locked .collection-intel-portrait {
+  filter: grayscale(0.72) brightness(0.58) drop-shadow(0 9px 9px rgba(0, 0, 0, 0.7));
+}
+
+.collection-intel-ability,
+.collection-intel-fragments,
+.collection-intel-mastery {
+  min-width: 0;
+  padding-top: 4%;
+  border-top: 1px solid rgba(107, 196, 188, 0.2);
+}
+
+.collection-intel-ability small,
+.collection-intel-fragments small,
+.collection-intel-mastery small {
+  color: #6e918e;
+  font-size: clamp(0.27rem, 0.44vw, 0.46rem);
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.collection-intel-ability strong {
+  display: block;
+  overflow: hidden;
+  margin-top: 0.42em;
+  color: var(--intel-accent);
+  font-size: clamp(0.42rem, 0.72vw, 0.74rem);
+  letter-spacing: 0.08em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collection-intel-ability p {
+  margin-top: 0.5em;
+  color: #a7bfbc;
+  font-size: clamp(0.31rem, 0.51vw, 0.53rem);
+  line-height: 1.42;
+}
+
+.collection-intel-fragments strong,
+.collection-intel-mastery strong {
+  color: #dffbf6;
+  font-size: clamp(0.32rem, 0.54vw, 0.56rem);
+  letter-spacing: 0.06em;
+}
+
+.collection-intel-fragments > i {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: clamp(4px, 0.48vw, 7px);
+  margin-top: 3%;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--intel-accent) 42%, transparent);
+  background: rgba(1, 8, 11, 0.9);
+}
+
+.collection-intel-fragments > i > b {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--intel-accent);
+  box-shadow: 0 0 9px var(--intel-accent);
+}
+
+.collection-intel-fragments p {
+  margin-top: 0.45em;
+  color: #788f8d;
+  font-size: clamp(0.25rem, 0.4vw, 0.42rem);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-align: right;
+}
+
+.collection-intel-mastery > div {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4%;
+  margin-top: 5%;
+}
+
+.collection-intel-mastery > div > i {
+  display: grid;
+  justify-items: center;
+  gap: 0.5em;
+  color: #536765;
+  font-style: normal;
+}
+
+.collection-intel-mastery > div > i.is-active {
+  color: var(--intel-accent);
+}
+
+.collection-intel-mastery i > span {
+  width: clamp(7px, 0.82vw, 12px);
+  aspect-ratio: 1;
+  border: 1px solid currentColor;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  transform: rotate(45deg);
+}
+
+.collection-intel-mastery i.is-active > span {
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor;
+}
+
+.collection-intel-mastery i small {
+  color: inherit;
+  font-size: clamp(0.2rem, 0.32vw, 0.34rem);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
 @media (max-width: 900px), (max-height: 520px) {
@@ -1495,13 +1826,33 @@ button.lobby-card:hover:not(:disabled) {
     font-size: clamp(0.2rem, 0.68vw, 0.3rem);
   }
 
+  .lobby-card-mastery-badge {
+    right: 4%;
+    bottom: 16%;
+    padding: 0.25em 0.38em;
+    font-size: clamp(0.2rem, 0.68vw, 0.3rem);
+  }
+
+  .lobby-card-lock {
+    min-width: 45%;
+    gap: 0.2em;
+  }
+
+  .lobby-card-lock svg {
+    width: clamp(13px, 2.4vw, 18px);
+  }
+
+  .lobby-card-lock small {
+    font-size: clamp(0.19rem, 0.62vw, 0.28rem);
+  }
+
   .lobby-archive-grid {
     gap: 2px;
   }
 
   .lobby-archive-item {
     height: min(calc((100% - 2px) / 2), 84px);
-    flex-basis: calc((100% - 12px) / 7);
+    flex-basis: calc((100% - 16px) / 9);
   }
 
   .lobby-card-archive .lobby-card-portrait {
@@ -1513,6 +1864,41 @@ button.lobby-card:hover:not(:disabled) {
   .lobby-card-archive .lobby-card-portrait.portrait-system {
     top: 47%;
     width: min(64%, 54px);
+  }
+
+  .lobby-card-archive .lobby-card-portrait.portrait-vault {
+    top: 47%;
+    width: min(61%, 52px);
+  }
+
+  .collection-intel-panel {
+    top: 11%;
+    right: 0.8%;
+    bottom: 13.6%;
+    width: min(42%, 330px);
+    grid-template-rows: auto auto minmax(0, 28%) auto auto;
+    gap: 1.6%;
+    padding: 1.2% 1.5%;
+    clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+  }
+
+  .collection-intel-panel > header {
+    padding-bottom: 2%;
+  }
+
+  .collection-intel-ability,
+  .collection-intel-fragments,
+  .collection-intel-mastery {
+    padding-top: 2%;
+  }
+
+  .collection-intel-ability p {
+    margin-top: 0.3em;
+    line-height: 1.25;
+  }
+
+  .collection-intel-mastery > div {
+    margin-top: 2.5%;
   }
 
   .lobby-category-legend {

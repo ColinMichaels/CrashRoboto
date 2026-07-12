@@ -7,6 +7,7 @@ import {
   UPGRADE_MULTIPLIERS,
 } from '../../game/core/content';
 import type {
+  CardLevel,
   MatchSnapshot,
   RobotCardId,
   RobotDefinition,
@@ -27,6 +28,7 @@ interface LobbyRobotStatsDialogProps {
   context: 'lobby';
   robotId: RobotCardId;
   upgrades: RobotUpgradeState;
+  cardLevel: CardLevel;
   firmwareRemaining: number;
   inLoadout: boolean;
   onClose: () => void;
@@ -206,12 +208,13 @@ export function RobotStatsDialog(props: RobotStatsDialogProps) {
   const lobby = props.context === 'lobby';
   const robot = ROBOTS[robotId];
   const upgrades = lobby ? props.upgrades : props.snapshot.upgrades.player[robotId];
+  const cardLevel = lobby ? props.cardLevel : props.snapshot.cardLevels.player[robotId];
   const availableResource = lobby ? props.firmwareRemaining : props.snapshot.charge.player;
   const phase = lobby ? undefined : props.snapshot.phase;
   const inLoadout = lobby ? props.inLoadout : true;
   const stats = useMemo(
-    () => getEffectiveRobotStats(robotId, upgrades),
-    [robotId, upgrades.output, upgrades.range, upgrades.speed],
+    () => getEffectiveRobotStats(robotId, upgrades, cardLevel),
+    [cardLevel, robotId, upgrades.output, upgrades.range, upgrades.speed],
   );
   const closeRef = useRef<HTMLButtonElement>(null);
   const [announcement, setAnnouncement] = useState('');
@@ -237,7 +240,7 @@ export function RobotStatsDialog(props: RobotStatsDialogProps) {
 
     const nextTier = (tier + 1) as 1 | 2;
     const nextUpgrades: RobotUpgradeState = { ...upgrades, [stat]: nextTier };
-    const nextStats = getEffectiveRobotStats(robotId, nextUpgrades);
+    const nextStats = getEffectiveRobotStats(robotId, nextUpgrades, cardLevel);
     const nextValue = stat === 'output'
       ? robot.heal
         ? `${formatValue(nextStats.heal)} repair output`
@@ -268,7 +271,7 @@ export function RobotStatsDialog(props: RobotStatsDialogProps) {
         <div className="robot-lab-identity">
           <span>ROBOT LAB</span>
           <h2 id="robot-lab-title">{robot.shortName} <i>//</i> {robot.name.toUpperCase()}</h2>
-          <p>{TECH_CLASS_LABELS[robot.techClass]} · MK {MARKS[Math.max(upgrades.output, upgrades.range, upgrades.speed)]}</p>
+          <p>{TECH_CLASS_LABELS[robot.techClass]} · MASTERY MK {cardLevel} · FIRMWARE MK {MARKS[Math.max(upgrades.output, upgrades.range, upgrades.speed)]}</p>
         </div>
         <button ref={closeRef} className="robot-lab-close" type="button" onClick={onClose} aria-label="Close Robot Lab">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 5 14 14M19 5 5 19" /></svg>
@@ -324,6 +327,7 @@ export function RobotStatsDialog(props: RobotStatsDialogProps) {
       </div>
 
       <footer className="robot-lab-footer">
+        <span>MASTERY MK {cardLevel} · +{(cardLevel - 1) * 4}% OUTPUT / INTEGRITY</span>
         {lobby
           ? inLoadout
             ? `${availableResource} FIRMWARE ${availableResource === 1 ? 'POINT' : 'POINTS'} AVAILABLE · REFUND WITH −`

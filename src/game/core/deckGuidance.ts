@@ -18,10 +18,10 @@ export function getDeckGuidance(deck: readonly CardId[]): string[] {
 
   const guidance: string[] = [];
   if (deck.filter((cardId) => CARDS[cardId].cost <= 3).length < 2) guidance.push('ADD TWO LOW-COST OPENERS');
-  if (!containsAny(deck, ['arc', 'emp', 'nano', 'sentry'])) guidance.push('ADD AREA CONTROL');
-  if (!containsAny(deck, ['sentry', 'foundry'])) guidance.push('ADD AN INSTALLATION');
-  if (!containsAny(deck, ['brute', 'rail', 'foundry'])) guidance.push('ADD STRUCTURE PRESSURE');
-  if (!containsAny(deck, ['pulse', 'patch'])) guidance.push('ADD SUPPORT COVERAGE');
+  if (!containsAny(deck, ['arc', 'emp', 'nano', 'gravity', 'sentry'])) guidance.push('ADD AREA CONTROL');
+  if (!containsAny(deck, ['sentry', 'foundry', 'firewall'])) guidance.push('ADD AN INSTALLATION');
+  if (!containsAny(deck, ['brute', 'rail', 'viper', 'foundry'])) guidance.push('ADD STRUCTURE PRESSURE');
+  if (!containsAny(deck, ['pulse', 'patch', 'aegis', 'firewall'])) guidance.push('ADD SUPPORT COVERAGE');
 
   const averageCost = deck.reduce((total, cardId) => total + CARDS[cardId].cost, 0) / deck.length;
   if (averageCost > 4.1) guidance.push('CURVE IS TOO EXPENSIVE');

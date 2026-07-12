@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   CARDS,
+  CARD_LEVEL_MULTIPLIERS,
   DEFAULT_ENEMY_DECK,
   DEFAULT_PLAYER_DECK,
   DECK_SIZE,
@@ -16,30 +17,41 @@ import {
   PLAYER_BRIDGE_EDGE_Y,
   PROGRAMS,
   PROGRAM_TOWER_DAMAGE_MULTIPLIER,
+  ROBOT_CARD_IDS,
   ROBOTS,
   TOWER_WEAPONS,
   TOWER_PAD_POSITIONS,
   UPGRADE_COSTS,
   UPGRADE_MULTIPLIERS,
   createDefaultMatchConfig,
+  createDefaultCardLevels,
   createDefaultTowerWeapons,
   createEmptyRobotUpgrades,
   createTowers,
   getEffectiveRobotStats,
+  getEffectiveInstallationStats,
+  getEffectiveProgramDamage,
+  getCardLevelMultiplier,
   getLaneX,
   getPerspectiveScale,
   isValidDeck,
+  normalizeCardLevels,
   validateMatchConfig,
 } from './content';
 import { MatchEngine } from './MatchEngine';
 import type {
+  CardLevelMap,
   CardId,
   GameCommand,
   GameEvent,
   MatchConfig,
+  InstallationKind,
+  InstallationState,
   ProgramZoneState,
+  ProgramKind,
   RobotKind,
   Team,
+  TowerState,
   UnitState,
 } from './types';
 
@@ -49,7 +61,17 @@ const advance = (engine: MatchEngine, ms: number) => {
 
 type MatchEngineHarness = {
   spawnUnit: (team: Team, kind: RobotKind, x: number, y: number) => UnitState;
+  placeInstallation: (team: Team, kind: InstallationKind, x: number, y: number) => void;
+  resolveProgram: (team: Team, kind: ProgramKind, x: number, y: number) => void;
+  damageUnit: (target: UnitState, amount: number, cause: 'projectile' | 'program' | 'decay', byTeam?: Team) => number;
+  damageInstallation: (target: InstallationState, amount: number, cause: 'projectile' | 'program' | 'decay', byTeam?: Team) => number;
+  damageTower: (target: TowerState, amount: number, cause: 'projectile' | 'program' | 'decay', byTeam?: Team) => number;
+  attackUnit: (attacker: UnitState, target: UnitState) => void;
+  attackStructure: (attacker: UnitState, target: InstallationState) => void;
+  aiDecisionMs: number;
   units: UnitState[];
+  installations: InstallationState[];
+  towers: TowerState[];
   zones: ProgramZoneState[];
 };
 
@@ -57,6 +79,7 @@ const harness = (engine: MatchEngine) => engine as unknown as MatchEngineHarness
 
 const PROGRAM_TEST_DECK: CardId[] = ['zip', 'foundry', 'sentry', 'vector', 'nano', 'pulse', 'brute', 'emp'];
 const SENTRY_TEST_DECK: CardId[] = ['zip', 'brute', 'emp', 'vector', 'nano', 'pulse', 'foundry', 'sentry'];
+const VAULT_TEST_DECK: CardId[] = ['aegis', 'wraith', 'viper', 'gravity', 'firewall', 'patch', 'sentry', 'emp'];
 
 const startWithDeck = (
   engine: MatchEngine,
@@ -65,6 +88,90 @@ const startWithDeck = (
 ) => engine.dispatch({ type: 'start', config: { modeId, playerDeck } });
 
 describe('MatchEngine', () => {
+  it('registers the five Vault cards with their exact combat definitions and portrait frames', () => {
+    expect(ROBOT_CARD_IDS).toEqual(expect.arrayContaining(['aegis', 'wraith', 'viper']));
+    expect(CARDS.aegis).toMatchObject({
+      name: 'AEGIS-4',
+      cost: 4,
+      techClass: 'prototype',
+      sheet: 'vault',
+      frame: 0,
+      maxHp: 620,
+      maxShieldHp: 240,
+      damage: 62,
+      attackInterval: 1.25,
+      range: 46,
+      speed: 55,
+      radius: 35,
+      targeting: 'ground',
+      projectile: 'bullet',
+      abilityName: 'Barrier Boot',
+    });
+    expect(CARDS.wraith).toMatchObject({
+      name: 'Wraith Coil',
+      shortName: 'WRAITH',
+      cost: 4,
+      techClass: 'exotic',
+      sheet: 'vault',
+      frame: 1,
+      maxHp: 360,
+      damage: 90,
+      attackInterval: 1.15,
+      range: 48,
+      speed: 78,
+      radius: 31,
+      dashDistance: 100,
+      abilityCooldownMs: 5_000,
+      initialAbilityCooldownMs: 1_200,
+      abilityName: 'Phase Step',
+    });
+    expect(CARDS.viper).toMatchObject({
+      name: 'Scrap Viper',
+      shortName: 'VIPER',
+      cost: 3,
+      techClass: 'prototype',
+      sheet: 'vault',
+      frame: 2,
+      maxHp: 340,
+      damage: 64,
+      attackInterval: 0.9,
+      range: 44,
+      speed: 82,
+      radius: 30,
+      lifesteal: 0.35,
+      abilityName: 'Salvage Siphon',
+    });
+    expect(CARDS.gravity).toMatchObject({
+      name: 'Gravity Well',
+      shortName: 'GRAVITY',
+      cost: 3,
+      techClass: 'prototype',
+      sheet: 'vault',
+      frame: 3,
+      effect: 'burst',
+      radius: 150,
+      damage: 45,
+      pullDistance: 90,
+      slowMultiplier: 0.65,
+      slowMs: 3_000,
+    });
+    expect(CARDS.firewall).toMatchObject({
+      name: 'Firewall Node',
+      shortName: 'FIREWALL',
+      cost: 4,
+      techClass: 'exotic',
+      sheet: 'vault',
+      frame: 4,
+      maxHp: 600,
+      lifetimeMs: 28_000,
+      radius: 42,
+      activationDelayMs: 0,
+      auraRadius: 130,
+      damageReduction: 0.24,
+      abilityName: 'Bulwark Matrix',
+    });
+  });
+
   it('uses converging lanes and smaller far-field scale for perspective', () => {
     expect(getLaneX('right', 650) - 800).toBeGreaterThan(getLaneX('right', 100) - 800);
     expect(getPerspectiveScale(100)).toBeLessThan(getPerspectiveScale(600));
@@ -239,6 +346,7 @@ describe('MatchEngine', () => {
     const validated = validateMatchConfig(candidate);
     expect(validated).toEqual({
       ...candidate,
+      playerCardLevels: createDefaultCardLevels(),
       playerUpgrades: createEmptyRobotUpgrades(),
       playerTowerWeapons: createDefaultTowerWeapons(),
     });
@@ -251,6 +359,7 @@ describe('MatchEngine', () => {
     expect(createDefaultMatchConfig()).toEqual({
       modeId: 'core-siege',
       playerDeck: DEFAULT_PLAYER_DECK,
+      playerCardLevels: createDefaultCardLevels(),
       playerUpgrades: createEmptyRobotUpgrades(),
       playerTowerWeapons: createDefaultTowerWeapons(),
     });
@@ -1001,6 +1110,255 @@ describe('MatchEngine', () => {
       attackId: undefined,
     });
     expect(events.some((event) => event.type === 'projectileFired')).toBe(false);
+  });
+
+  it('absorbs incoming damage with the AEGIS-4 barrier before hull integrity', () => {
+    const engine = new MatchEngine();
+    engine.dispatch({ type: 'start' });
+    const aegis = harness(engine).spawnUnit('player', 'aegis', 680, 420);
+
+    expect(aegis).toMatchObject({
+      hp: 620,
+      maxHp: 620,
+      shieldHp: 240,
+      maxShieldHp: 240,
+    });
+    expect(harness(engine).damageUnit(aegis, 200, 'projectile', 'enemy')).toBe(200);
+    expect(aegis).toMatchObject({ hp: 620, shieldHp: 40 });
+    expect(harness(engine).damageUnit(aegis, 100, 'projectile', 'enemy')).toBe(100);
+    expect(aegis).toMatchObject({ hp: 560, shieldHp: 0 });
+  });
+
+  it('dashes Wraith Coil toward its target after the initial delay and honors its cooldown', () => {
+    const events: GameEvent[] = [];
+    const engine = new MatchEngine((event) => events.push(event));
+    engine.dispatch({ type: 'start' });
+    const state = harness(engine);
+    state.aiDecisionMs = Number.POSITIVE_INFINITY;
+    const wraith = state.spawnUnit('player', 'wraith', 680, 420);
+    const target = state.spawnUnit('enemy', 'brute', 680, 230);
+    target.disabledMs = 100_000;
+
+    expect(wraith.abilityCooldownMs).toBe(1_200);
+    advance(engine, 1_150);
+    expect(events.some((event) => event.type === 'unitDashed')).toBe(false);
+    advance(engine, 50);
+
+    const firstDash = events.find((event) => event.type === 'unitDashed');
+    expect(firstDash).toMatchObject({
+      type: 'unitDashed',
+      unitId: wraith.id,
+      team: 'player',
+      kind: 'wraith',
+    });
+    if (!firstDash || firstDash.type !== 'unitDashed') throw new Error('Expected Wraith dash');
+    expect(Math.hypot(firstDash.toX - firstDash.fromX, firstDash.toY - firstDash.fromY))
+      .toBeLessThanOrEqual(100);
+    expect(Math.hypot(firstDash.toX - firstDash.fromX, firstDash.toY - firstDash.fromY))
+      .toBeGreaterThan(50);
+    expect(wraith.abilityCooldownMs).toBe(5_000);
+
+    advance(engine, 4_900);
+    expect(events.filter((event) => event.type === 'unitDashed')).toHaveLength(1);
+    expect(wraith.abilityCooldownMs).toBe(100);
+    target.x = wraith.x;
+    target.y = wraith.y - 190;
+    advance(engine, 100);
+    expect(events.filter((event) => event.type === 'unitDashed')).toHaveLength(2);
+    expect(wraith.abilityCooldownMs).toBe(5_000);
+  });
+
+  it('heals Scrap Viper from actual direct damage to both units and structures', () => {
+    const engine = new MatchEngine();
+    engine.dispatch({ type: 'start' });
+    const state = harness(engine);
+    const viper = state.spawnUnit('player', 'viper', 680, 420);
+    const target = state.spawnUnit('enemy', 'zip', 680, 380);
+    viper.hp = 100;
+    target.hp = 10;
+
+    state.attackUnit(viper, target);
+    expect(target.hp).toBe(0);
+    expect(viper.hp).toBeCloseTo(103.5, 8);
+
+    state.placeInstallation('enemy', 'sentry', 680, 380);
+    const sentry = state.installations.at(-1)!;
+    sentry.hp = 20;
+    viper.hp = 100;
+    state.attackStructure(viper, sentry);
+    expect(sentry.hp).toBe(0);
+    expect(viper.hp).toBeCloseTo(107, 8);
+  });
+
+  it('pulls and slows only enemy units with Gravity Well while damaging every target class', () => {
+    const engine = new MatchEngine();
+    engine.dispatch({ type: 'start' });
+    const state = harness(engine);
+    state.aiDecisionMs = Number.POSITIVE_INFINITY;
+    const enemyRelay = state.towers.find((tower) => tower.id === 'enemy-left')!;
+    const target = state.spawnUnit('enemy', 'zip', enemyRelay.x + 120, enemyRelay.y);
+    target.cooldown = 1;
+    state.placeInstallation('enemy', 'sentry', enemyRelay.x + 50, enemyRelay.y);
+    const sentry = state.installations.at(-1)!;
+    const sentryPosition = { x: sentry.x, y: sentry.y };
+
+    state.resolveProgram('player', 'gravity', enemyRelay.x, enemyRelay.y);
+
+    expect(target).toMatchObject({
+      hp: ROBOTS.zip.maxHp - PROGRAMS.gravity.damage,
+      x: enemyRelay.x + 30,
+      y: enemyRelay.y,
+      slowMs: 3_000,
+    });
+    expect(sentry).toMatchObject({
+      ...sentryPosition,
+      hp: INSTALLATIONS.sentry.maxHp - PROGRAMS.gravity.damage,
+    });
+    expect(enemyRelay.hp).toBeCloseTo(
+      enemyRelay.maxHp - PROGRAMS.gravity.damage * PROGRAM_TOWER_DAMAGE_MULTIPLIER,
+      8,
+    );
+
+    const beforeMove = { x: target.x, y: target.y };
+    advance(engine, 1_000);
+    expect(target.cooldown).toBeCloseTo(0.35, 8);
+    expect(target.slowMs).toBe(2_000);
+    expect(Math.hypot(target.x - beforeMove.x, target.y - beforeMove.y)).toBeCloseTo(
+      ROBOTS.zip.speed * 0.72 * (PROGRAMS.gravity.slowMultiplier ?? 1),
+      5,
+    );
+  });
+
+  it('applies Firewall Bulwark once, excludes itself, and never reduces decay', () => {
+    const engine = new MatchEngine();
+    engine.dispatch({ type: 'start' });
+    const state = harness(engine);
+    state.aiDecisionMs = Number.POSITIVE_INFINITY;
+    state.placeInstallation('player', 'firewall', 650, 515);
+    const firewall = state.installations.at(-1)!;
+    const ally = state.spawnUnit('player', 'zip', 650, 450);
+    state.placeInstallation('player', 'sentry', 750, 515);
+    const sentry = state.installations.at(-1)!;
+    const relay = state.towers.find((tower) => tower.id === 'player-left')!;
+
+    expect(INSTALLATIONS.firewall).toMatchObject({
+      auraRadius: 130,
+      damageReduction: 0.24,
+      activationDelayMs: 0,
+    });
+    expect(state.damageUnit(ally, 100, 'projectile', 'enemy')).toBeCloseTo(76, 8);
+    expect(state.damageInstallation(sentry, 100, 'program', 'enemy')).toBeCloseTo(76, 8);
+    expect(state.damageTower(relay, 100, 'projectile', 'enemy')).toBeCloseTo(76, 8);
+    expect(state.damageInstallation(firewall, 100, 'projectile', 'enemy')).toBeCloseTo(100, 8);
+
+    state.placeInstallation('player', 'firewall', 700, 515);
+    expect(state.damageUnit(ally, 100, 'projectile', 'enemy')).toBeCloseTo(76, 8);
+    expect(state.damageInstallation(sentry, 100, 'decay')).toBeCloseTo(100, 8);
+    expect(ally.hp).toBeCloseTo(28, 8);
+    expect(sentry.hp).toBeCloseTo(INSTALLATIONS.sentry.maxHp - 176, 8);
+    expect(relay.hp).toBeCloseTo(relay.maxHp - 76, 8);
+    expect(firewall.hp).toBeCloseTo(INSTALLATIONS.firewall.maxHp - 100, 8);
+  });
+
+  it('normalizes mastery levels, composes them with Firmware, and restores them on restart', () => {
+    expect(CARD_LEVEL_MULTIPLIERS).toEqual([1, 1.04, 1.08, 1.12, 1.16]);
+    expect(getCardLevelMultiplier(1)).toBe(1);
+    expect(getCardLevelMultiplier(5)).toBe(1.16);
+    expect(createDefaultCardLevels()).toEqual(
+      Object.fromEntries(Object.keys(CARDS).map((cardId) => [cardId, 1])),
+    );
+
+    const partial = { aegis: 5, gravity: 4 } as const;
+    const normalized = normalizeCardLevels(partial)!;
+    expect(normalized).toEqual({
+      ...createDefaultCardLevels(),
+      aegis: 5,
+      gravity: 4,
+    });
+    expect(normalizeCardLevels({ aegis: 0 })).toBeNull();
+    expect(normalizeCardLevels({ aegis: 6 })).toBeNull();
+    expect(normalizeCardLevels({ aegis: 2.5 })).toBeNull();
+    expect(normalizeCardLevels({ unknown: 2 })).toBeNull();
+    expect(validateMatchConfig({
+      modeId: 'core-siege',
+      playerDeck: VAULT_TEST_DECK,
+      playerCardLevels: { aegis: 6 },
+    })).toBeNull();
+
+    const masteredPatch = getEffectiveRobotStats(
+      'patch',
+      { output: 2, range: 0, speed: 0 },
+      5,
+    );
+    expect(masteredPatch).toMatchObject({
+      maxHp: ROBOTS.patch.maxHp * 1.16,
+      damage: ROBOTS.patch.damage * 1.16 * UPGRADE_MULTIPLIERS.output[2],
+      heal: ROBOTS.patch.heal! * 1.16 * UPGRADE_MULTIPLIERS.output[2],
+    });
+    expect(getEffectiveProgramDamage('gravity', 4)).toBeCloseTo(PROGRAMS.gravity.damage * 1.12, 8);
+    expect(getEffectiveInstallationStats('sentry', 3)).toEqual({
+      maxHp: INSTALLATIONS.sentry.maxHp * 1.08,
+      damage: INSTALLATIONS.sentry.damage * 1.08,
+    });
+
+    const playerCardLevels: CardLevelMap = createDefaultCardLevels();
+    playerCardLevels.aegis = 5;
+    playerCardLevels.gravity = 4;
+    playerCardLevels.sentry = 3;
+    const config: MatchConfig = {
+      modeId: 'core-siege',
+      playerDeck: [...VAULT_TEST_DECK],
+      playerCardLevels,
+      playerUpgrades: { aegis: { output: 1 } },
+    };
+    const engine = new MatchEngine();
+    expect(engine.dispatch({ type: 'start', config })).toBe(true);
+    playerCardLevels.aegis = 1;
+    const state = harness(engine);
+    state.aiDecisionMs = Number.POSITIVE_INFINITY;
+    const aegis = state.spawnUnit('player', 'aegis', 680, 420);
+    const enemyAegis = state.spawnUnit('enemy', 'aegis', 680, 200);
+    const damageTarget = state.spawnUnit('enemy', 'brute', 680, 380);
+    state.attackUnit(aegis, damageTarget);
+    expect(aegis).toMatchObject({
+      maxHp: ROBOTS.aegis.maxHp * 1.16,
+      maxShieldHp: ROBOTS.aegis.maxShieldHp! * 1.16,
+    });
+    expect(enemyAegis).toMatchObject({
+      maxHp: ROBOTS.aegis.maxHp,
+      maxShieldHp: ROBOTS.aegis.maxShieldHp,
+    });
+    expect(damageTarget.hp).toBeCloseTo(
+      ROBOTS.brute.maxHp - ROBOTS.aegis.damage * 1.16 * UPGRADE_MULTIPLIERS.output[1],
+      8,
+    );
+
+    const gravityTarget = state.spawnUnit('enemy', 'zip', 900, 400);
+    state.resolveProgram('player', 'gravity', gravityTarget.x, gravityTarget.y);
+    expect(gravityTarget.hp).toBeCloseTo(
+      ROBOTS.zip.maxHp - PROGRAMS.gravity.damage * 1.12,
+      8,
+    );
+    state.placeInstallation('player', 'sentry', 700, 450);
+    expect(state.installations.at(-1)?.maxHp).toBeCloseTo(
+      INSTALLATIONS.sentry.maxHp * 1.08,
+      8,
+    );
+
+    const snapshot = engine.getSnapshot();
+    expect(snapshot.cardLevels.player.aegis).toBe(5);
+    expect(snapshot.cardLevels.enemy.aegis).toBe(1);
+    snapshot.cardLevels.player.aegis = 1;
+    expect(engine.getSnapshot().cardLevels.player.aegis).toBe(5);
+    expect(engine.dispatch({ type: 'restart' })).toBe(true);
+    expect(engine.getSnapshot().cardLevels.player).toEqual({
+      ...createDefaultCardLevels(),
+      aegis: 5,
+      gravity: 4,
+      sentry: 3,
+    });
+    expect(engine.getSnapshot().cardLevels.enemy).toEqual(createDefaultCardLevels());
+    expect(engine.getSnapshot().units).toHaveLength(0);
   });
 
   it('replays upgrade commands and the resulting battle identically with the same seed', () => {

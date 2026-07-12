@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import { getCardSpriteStyle } from '../cards/cardPresentation';
+import { CardCollectionPanel } from '../cards/CardCollectionPanel';
 import { getRobotUpgradeBadgeInfo, UpgradeBadge } from '../cards/UpgradeBadge';
 import {
   CARDS,
@@ -10,6 +11,14 @@ import {
   TOWER_WEAPON_IDS,
 } from '../../game/core/content';
 import { getXpForLevel, MAX_PLAYER_LEVEL } from '../../game/core/progression';
+import {
+  getCardCopyRequirement,
+  getUnlockedCardIds,
+  isCardUnlocked,
+  VAULT_CARD_IDS,
+  type CardCollection,
+  type CardCollectionEntry,
+} from '../../game/core/collection';
 import { DECK_PRESETS, getDeckGuidance, type DeckPresetId } from '../../game/core/deckGuidance';
 import { PILOTS, PILOT_IDS, type PilotId } from '../../game/core/pilots';
 import type {
@@ -38,6 +47,7 @@ export interface LobbyProps {
   firmwareBudget: number;
   playerLevel: number;
   playerXp: number;
+  collection: CardCollection;
   onSelectMode: (mode: GameModeId) => void;
   onSelectPilot: (pilotId: PilotId) => void;
   onSelectTowerWeapon: (lane: Lane, weaponId: TowerWeaponId) => void;
@@ -49,6 +59,7 @@ export interface LobbyProps {
   onStartTutorial: () => void;
   tutorialCompleted: boolean;
   onReset: () => void;
+  onPrepareLaunch: () => void;
   onLaunch: () => void;
   muted: boolean;
   onToggleMute: () => void;
@@ -143,21 +154,28 @@ function ResetIcon() {
 interface CardChipProps {
   card: CardDefinition;
   upgrades?: RobotUpgradeState;
+  collectionEntry: CardCollectionEntry;
+  locked?: boolean;
   selected?: boolean;
   selectedIndex?: number;
   disabled?: boolean;
   variant: 'loadout' | 'archive';
-  onClick: () => void;
+  onClick: (trigger: HTMLButtonElement) => void;
   onInspect?: (trigger: HTMLButtonElement) => void;
+  onIntel?: (trigger: HTMLButtonElement) => void;
 }
 
-function CardChip({ card, upgrades, selected = false, selectedIndex, disabled = false, variant, onClick, onInspect }: CardChipProps) {
+function CardChip({ card, upgrades, collectionEntry, locked = false, selected = false, selectedIndex, disabled = false, variant, onClick, onInspect, onIntel }: CardChipProps) {
   const upgradeBadge = getRobotUpgradeBadgeInfo(upgrades);
+  const copyRequirement = getCardCopyRequirement(collectionEntry.level);
+  const masteryCopy = collectionEntry.level > 0 ? ` Permanent Mastery Mark ${collectionEntry.level}.` : '';
   const upgradeCopy = upgradeBadge
     ? ` Upgraded to Mark ${upgradeBadge.mark} with ${upgradeBadge.tierPoints} installed ${upgradeBadge.tierPoints === 1 ? 'tier' : 'tiers'}.`
     : '';
   const selectionCopy = selectedIndex === undefined ? '' : ` Selected in loadout slot ${selectedIndex + 1}.`;
-  const actionCopy = variant === 'loadout'
+  const actionCopy = locked
+    ? ` Locked with ${collectionEntry.copies} of ${copyRequirement ?? 0} fragments. Activate to inspect.`
+    : variant === 'loadout'
     ? ' Activate to remove from the loadout.'
     : selected
       ? ' Activate to remove from the loadout.'
@@ -166,18 +184,19 @@ function CardChip({ card, upgrades, selected = false, selectedIndex, disabled = 
         : ' Activate to add to the loadout.';
 
   return (
-    <div className={`lobby-card-shell lobby-card-shell-${variant}${onInspect ? ' has-lab' : ''} category-${card.category}`}>
+    <div className={`lobby-card-shell lobby-card-shell-${variant}${onInspect || onIntel ? ' has-lab' : ''} category-${card.category}`}>
       <button
-        className={`lobby-card lobby-card-${variant} category-${card.category}${selected ? ' is-selected' : ''}`}
+        className={`lobby-card lobby-card-${variant} category-${card.category}${selected ? ' is-selected' : ''}${locked ? ' is-vault-locked' : ''}`}
         type="button"
-        onClick={onClick}
+        onClick={(event) => onClick(event.currentTarget)}
         disabled={disabled}
         aria-pressed={variant === 'archive' ? selected : undefined}
-        aria-label={`${card.name}, ${CATEGORY_LABELS[card.category].toLowerCase()}, costs ${card.cost} charge.${upgradeCopy}${selectionCopy}${actionCopy}`}
+        aria-label={`${card.name}, ${CATEGORY_LABELS[card.category].toLowerCase()}, costs ${card.cost} charge.${masteryCopy}${upgradeCopy}${selectionCopy}${actionCopy}`}
         title={`${card.name} — ${card.description}`}
       >
         <span className="lobby-card-cost" aria-hidden="true">{card.cost}</span>
         <UpgradeBadge info={upgradeBadge} className="lobby-card-upgrade-badge" />
+        {collectionEntry.level > 1 && <span className="lobby-card-mastery-badge" aria-hidden="true">MK {collectionEntry.level}</span>}
         {variant === 'loadout' && selectedIndex !== undefined && (
           <span className="lobby-card-order" aria-hidden="true">{String(selectedIndex + 1).padStart(2, '0')}</span>
         )}
@@ -187,16 +206,22 @@ function CardChip({ card, upgrades, selected = false, selectedIndex, disabled = 
           aria-hidden="true"
         />
         <span className="lobby-card-name">{card.shortName}</span>
+        {locked && (
+          <span className="lobby-card-lock" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M7 10V7a5 5 0 0 1 10 0v3m-12 0h14v11H5z" /><path d="M12 14v3" /></svg>
+            <small>{collectionEntry.copies} / {copyRequirement}</small>
+          </span>
+        )}
         {selected && variant === 'archive' && !onInspect && <span className="lobby-card-check" aria-hidden="true">✓</span>}
       </button>
-      {onInspect && (
+      {(onInspect || onIntel) && (
         <button
           className="lobby-card-lab-button"
           type="button"
-          onClick={(event) => onInspect(event.currentTarget)}
-          aria-label={`Open lobby Robot Lab for ${card.name}`}
+          onClick={(event) => (onInspect ?? onIntel)?.(event.currentTarget)}
+          aria-label={onInspect ? `Open lobby Robot Lab for ${card.name}` : `Open card intel for ${card.name}`}
         >
-          LAB
+          {onInspect ? 'LAB' : 'INTEL'}
         </button>
       )}
     </div>
@@ -263,6 +288,7 @@ export function Lobby({
   firmwareBudget,
   playerLevel,
   playerXp,
+  collection,
   onSelectMode,
   onSelectPilot,
   onSelectTowerWeapon,
@@ -274,6 +300,7 @@ export function Lobby({
   onStartTutorial,
   tutorialCompleted,
   onReset,
+  onPrepareLaunch,
   onLaunch,
   muted,
   onToggleMute,
@@ -284,9 +311,11 @@ export function Lobby({
   const towerHeadingId = useId();
   const pilotTriggerRef = useRef<HTMLButtonElement>(null);
   const labTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const collectionTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [announcement, setAnnouncement] = useState('');
   const [pilotMenuOpen, setPilotMenuOpen] = useState(false);
   const [inspectedRobot, setInspectedRobot] = useState<RobotCardId | null>(null);
+  const [inspectedCollectionCard, setInspectedCollectionCard] = useState<CardId | null>(null);
   const deckFull = selectedDeck.length === DECK_SIZE;
   const currentLevelXp = getXpForLevel(playerLevel);
   const nextLevelXp = getXpForLevel(Math.min(MAX_PLAYER_LEVEL, playerLevel + 1));
@@ -301,12 +330,15 @@ export function Lobby({
   } as CSSProperties;
 
   useEffect(() => {
-    if (!pilotMenuOpen && !inspectedRobot) return undefined;
+    if (!pilotMenuOpen && !inspectedRobot && !inspectedCollectionCard) return undefined;
     const closeOverlay = (event: globalThis.KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       if (inspectedRobot) {
         setInspectedRobot(null);
         window.requestAnimationFrame(() => labTriggerRef.current?.focus({ preventScroll: true }));
+      } else if (inspectedCollectionCard) {
+        setInspectedCollectionCard(null);
+        window.requestAnimationFrame(() => collectionTriggerRef.current?.focus({ preventScroll: true }));
       } else {
         setPilotMenuOpen(false);
         window.requestAnimationFrame(() => pilotTriggerRef.current?.focus({ preventScroll: true }));
@@ -314,7 +346,7 @@ export function Lobby({
     };
     window.addEventListener('keydown', closeOverlay);
     return () => window.removeEventListener('keydown', closeOverlay);
-  }, [inspectedRobot, pilotMenuOpen]);
+  }, [inspectedCollectionCard, inspectedRobot, pilotMenuOpen]);
 
   const chooseMode = (modeId: GameModeId) => {
     onSelectMode(modeId);
@@ -336,13 +368,28 @@ export function Lobby({
   const inspectRobot = (robotId: RobotCardId, trigger: HTMLButtonElement) => {
     labTriggerRef.current = trigger;
     setPilotMenuOpen(false);
+    setInspectedCollectionCard(null);
     setInspectedRobot(robotId);
     setAnnouncement(`${CARDS[robotId].name} opened in the lobby Robot Lab.`);
+  };
+
+  const inspectCollectionCard = (cardId: CardId, trigger: HTMLButtonElement) => {
+    collectionTriggerRef.current = trigger;
+    setPilotMenuOpen(false);
+    setInspectedRobot(null);
+    setInspectedCollectionCard(cardId);
+    const entry = collection[cardId];
+    setAnnouncement(`${CARDS[cardId].name} card intel opened. ${entry.level === 0 ? `${entry.copies} fragments recovered.` : `Mastery Mark ${entry.level}.`}`);
   };
 
   const closeRobotLab = () => {
     setInspectedRobot(null);
     window.requestAnimationFrame(() => labTriggerRef.current?.focus({ preventScroll: true }));
+  };
+
+  const closeCollectionIntel = () => {
+    setInspectedCollectionCard(null);
+    window.requestAnimationFrame(() => collectionTriggerRef.current?.focus({ preventScroll: true }));
   };
 
   const navigateModes = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
@@ -362,9 +409,13 @@ export function Lobby({
     });
   };
 
-  const toggleArchiveCard = (cardId: CardId) => {
+  const toggleArchiveCard = (cardId: CardId, trigger: HTMLButtonElement) => {
     const selectedIndex = selectedDeck.indexOf(cardId);
     const card = CARDS[cardId];
+    if (!isCardUnlocked(collection, cardId)) {
+      inspectCollectionCard(cardId, trigger);
+      return;
+    }
     onToggleCard(cardId);
     setAnnouncement(selectedIndex >= 0
       ? `${card.name} removed. ${Math.max(0, selectedDeck.length - 1)} of ${DECK_SIZE} chips selected.`
@@ -542,6 +593,7 @@ export function Lobby({
                   {cardId && card ? (
                     <CardChip
                       card={card}
+                      collectionEntry={collection[cardId]}
                       upgrades={card.category === 'unit' || card.category === 'commander'
                         ? upgrades[cardId as RobotCardId]
                         : undefined}
@@ -551,6 +603,9 @@ export function Lobby({
                       onClick={() => removeLoadoutCard(cardId, index)}
                       onInspect={card.category === 'unit' || card.category === 'commander'
                         ? (trigger) => inspectRobot(cardId as RobotCardId, trigger)
+                        : undefined}
+                      onIntel={VAULT_CARD_IDS.includes(cardId as (typeof VAULT_CARD_IDS)[number]) && card.category !== 'unit' && card.category !== 'commander'
+                        ? (trigger) => inspectCollectionCard(cardId, trigger)
                         : undefined}
                     />
                   ) : <EmptyLoadoutSlot index={index} />}
@@ -563,17 +618,20 @@ export function Lobby({
         <section className="lobby-panel lobby-archive-panel" aria-labelledby="chip-archive-title">
           <div className="lobby-panel-heading">
             <h2 id="chip-archive-title">CHIP ARCHIVE</h2>
-            <span>{LOBBY_CARDS.length} AVAILABLE</span>
+            <span>{getUnlockedCardIds(collection).length} / {LOBBY_CARDS.length} UNLOCKED</span>
           </div>
           <div className="lobby-archive-grid" role="list" aria-label="Available command chips">
             {LOBBY_CARDS.map((card) => {
               const selectedIndex = selectedDeck.indexOf(card.id);
               const selected = selectedIndex >= 0;
-              const disabled = deckFull && !selected;
+              const locked = !isCardUnlocked(collection, card.id);
+              const disabled = deckFull && !selected && !locked;
               return (
                 <div className="lobby-archive-item" role="listitem" key={card.id}>
                   <CardChip
                     card={card}
+                    collectionEntry={collection[card.id]}
+                    locked={locked}
                     upgrades={card.category === 'unit' || card.category === 'commander'
                       ? upgrades[card.id as RobotCardId]
                       : undefined}
@@ -581,9 +639,12 @@ export function Lobby({
                     selectedIndex={selected ? selectedIndex : undefined}
                     disabled={disabled}
                     variant="archive"
-                    onClick={() => toggleArchiveCard(card.id)}
-                    onInspect={card.category === 'unit' || card.category === 'commander'
+                    onClick={(trigger) => toggleArchiveCard(card.id, trigger)}
+                    onInspect={!locked && (card.category === 'unit' || card.category === 'commander')
                       ? (trigger) => inspectRobot(card.id as RobotCardId, trigger)
+                      : undefined}
+                    onIntel={!locked && VAULT_CARD_IDS.includes(card.id as (typeof VAULT_CARD_IDS)[number]) && card.category !== 'unit' && card.category !== 'commander'
+                      ? (trigger) => inspectCollectionCard(card.id, trigger)
                       : undefined}
                   />
                 </div>
@@ -619,6 +680,8 @@ export function Lobby({
         <button
           className="lobby-launch-button"
           type="button"
+          onPointerEnter={onPrepareLaunch}
+          onFocus={onPrepareLaunch}
           onClick={onLaunch}
           disabled={!deckFull}
           aria-describedby={!deckFull ? launchHintId : undefined}
@@ -638,11 +701,20 @@ export function Lobby({
           context="lobby"
           robotId={inspectedRobot}
           upgrades={upgrades[inspectedRobot]}
+          cardLevel={collection[inspectedRobot].level || 1}
           firmwareRemaining={firmwareRemaining}
           inLoadout={selectedDeck.includes(inspectedRobot)}
           onClose={closeRobotLab}
           onUpgrade={onUpgradeRobot}
           onDowngrade={onDowngradeRobot}
+        />
+      )}
+
+      {inspectedCollectionCard && (
+        <CardCollectionPanel
+          cardId={inspectedCollectionCard}
+          entry={collection[inspectedCollectionCard]}
+          onClose={closeCollectionIntel}
         />
       )}
 
