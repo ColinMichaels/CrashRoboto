@@ -15,6 +15,7 @@ import { GameOverlay } from '../features/hud/GameOverlay';
 import { Hud } from '../features/hud/Hud';
 import { useGameSnapshot } from '../features/hud/useGameSnapshot';
 import { Lobby } from '../features/lobby/Lobby';
+import { TutorialCoach, type TutorialStep } from '../features/tutorial/TutorialCoach';
 import {
   BOARD_HEIGHT,
   BOARD_WIDTH,
@@ -29,12 +30,14 @@ import {
   getPlayerLevel,
   type MatchProgressAward,
 } from '../game/core/progression';
+import { DECK_PRESETS, type DeckPresetId } from '../game/core/deckGuidance';
 import { readStorageItem, writeStorageItem } from './browserStorage';
 import { readLobbyLoadout, resetLobbyLoadout, saveLobbyLoadout } from './loadoutStorage';
 import { readPlayerProgress, savePlayerProgress } from './playerProgressStorage';
 
 const GameCanvas = lazy(() => import('./GameCanvas').then((module) => ({ default: module.GameCanvas })));
 const MUTE_STORAGE_KEY = 'crash-roboto-muted';
+const TUTORIAL_STORAGE_KEY = 'crash-roboto-tutorial-complete';
 
 function readSeed() {
   const value = new URLSearchParams(window.location.search).get('seed');
@@ -55,8 +58,11 @@ export function App() {
   const [inspectedRobot, setInspectedRobot] = useState<RobotCardId | null>(null);
   const [playerProgress, setPlayerProgress] = useState(readPlayerProgress);
   const [lastProgressAward, setLastProgressAward] = useState<MatchProgressAward | null>(null);
+  const [tutorialStep, setTutorialStep] = useState<TutorialStep | null>(null);
+  const [tutorialCompleted, setTutorialCompleted] = useState(() => readStorageItem(TUTORIAL_STORAGE_KEY) === 'true');
   const [lobbyLoadout, setLobbyLoadout] = useState(readLobbyLoadout);
   const awardedMatchRevisionRef = useRef(-1);
+  const tutorialFirmwareBaselineRef = useRef(0);
   const snapshotRef = useRef(snapshot);
   const inspectedRobotRef = useRef(inspectedRobot);
   const firmwareSpent = useMemo(
@@ -132,6 +138,18 @@ export function App() {
     });
   }, [sound]);
 
+  const applyDeckPreset = useCallback((presetId: DeckPresetId) => {
+    sound.blip();
+    setLobbyLoadout((current) => {
+      const deck = [...DECK_PRESETS[presetId].deck];
+      const upgrades = cloneRobotUpgrades(current.upgrades);
+      for (const robotId of ROBOT_CARD_IDS) {
+        if (!deck.includes(robotId)) upgrades[robotId] = { output: 0, range: 0, speed: 0 };
+      }
+      return { ...current, deck, upgrades };
+    });
+  }, [sound]);
+
   const adjustLobbyUpgrade = useCallback((robotId: RobotCardId, stat: UpgradeStat, change: -1 | 1) => {
     setLobbyLoadout((current) => {
       if (!current.deck.includes(robotId)) return current;
@@ -169,7 +187,20 @@ export function App() {
         playerFirmwareBudget: firmwareBudget,
       },
     });
-  }, [dispatch, firmwareBudget, lobbyLoadout, sound]);
+    if (tutorialStep === 'launch') setTutorialStep('select');
+  }, [dispatch, firmwareBudget, lobbyLoadout, sound, tutorialStep]);
+
+  const startTutorial = useCallback(() => {
+    tutorialFirmwareBaselineRef.current = firmwareSpent;
+    setTutorialStep(firmwareSpent >= firmwareBudget ? 'launch' : 'firmware');
+  }, [firmwareBudget, firmwareSpent]);
+
+  const stopTutorial = useCallback(() => setTutorialStep(null), []);
+  const finishTutorial = useCallback(() => {
+    writeStorageItem(TUTORIAL_STORAGE_KEY, 'true');
+    setTutorialCompleted(true);
+    setTutorialStep(null);
+  }, []);
 
   const returnToLobby = useCallback(() => {
     dragOriginRef.current = null;
@@ -244,6 +275,22 @@ export function App() {
     setPlayerProgress(nextProgress);
     setLastProgressAward(award);
   }, [playerProgress.matches, playerProgress.xp, snapshot.battleScore, snapshot.phase, snapshot.result, snapshot.revision]);
+  useEffect(() => {
+    if (tutorialStep === 'firmware' && firmwareSpent > tutorialFirmwareBaselineRef.current) {
+      setTutorialStep('launch');
+    } else if (tutorialStep === 'select' && snapshot.selected) {
+      setTutorialStep('placement');
+    } else if (
+      tutorialStep === 'placement' &&
+      (snapshot.units.some((unit) => unit.team === 'player') ||
+        snapshot.installations.some((installation) => installation.team === 'player') ||
+        snapshot.zones.some((zone) => zone.team === 'player'))
+    ) {
+      setTutorialStep('relay');
+    } else if (tutorialStep === 'relay' && snapshot.score.player > 0) {
+      setTutorialStep('complete');
+    }
+  }, [firmwareSpent, snapshot.installations, snapshot.score.player, snapshot.selected, snapshot.units, snapshot.zones, tutorialStep]);
 
   useEffect(() => {
     const onPointerUp = (event: PointerEvent) => finishDrag(event.clientX, event.clientY);
@@ -323,6 +370,9 @@ export function App() {
             onRemoveCard={removeLobbyCard}
             onUpgradeRobot={(robotId, stat) => adjustLobbyUpgrade(robotId, stat, 1)}
             onDowngradeRobot={(robotId, stat) => adjustLobbyUpgrade(robotId, stat, -1)}
+            onApplyDeckPreset={applyDeckPreset}
+            onStartTutorial={startTutorial}
+            tutorialCompleted={tutorialCompleted}
             onReset={resetLoadout}
             onLaunch={launchMatch}
             muted={muted}
@@ -358,6 +408,9 @@ export function App() {
               progressAward={lastProgressAward}
             />
           </>
+        )}
+        {tutorialStep && (
+          <TutorialCoach step={tutorialStep} onSkip={stopTutorial} onComplete={finishTutorial} />
         )}
       </div>
 

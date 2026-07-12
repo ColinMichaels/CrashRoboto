@@ -7,18 +7,19 @@ import {
   INSTALLATIONS,
   OVERDRIVE_AURA_RADIUS,
   PROGRAMS,
+  TOWER_VISUAL_SIZE,
   TOWER_WEAPONS,
+  getEffectiveRobotStats,
+  getLaneX,
   getPerspectiveScale,
 } from '../core/content';
 import {
   getDeploymentZones,
-  isDeploymentPoint,
-  isProgramTargetPoint,
   PROGRAM_TARGET_ZONE,
 } from '../core/deployment';
+import { evaluatePlacement } from '../core/placementFeedback';
 import type {
   CardDefinition,
-  CardId,
   CombatEntityRef,
   GameEvent,
   InstallationKind,
@@ -43,6 +44,7 @@ import {
   resolveUnitPose,
   selectArenaUnitFlipX,
   type ArenaUnitDirection,
+  type ArenaUnitPoseState,
 } from './unitPresentation';
 
 const ROBOT_SIZES: Record<RobotKind, number> = {
@@ -87,8 +89,11 @@ interface UnitMotionVisual {
   previousX: number;
   previousY: number;
   movingUntilMs: number;
+  gaitStartedAtMs: number;
+  gaitStopsAtMs: number;
   direction: ArenaUnitDirection;
   flipX: boolean;
+  state: ArenaUnitPoseState;
 }
 
 const teamColor = (team: Team): number => (team === 'player' ? PLAYER_COLOR : ENEMY_COLOR);
@@ -109,6 +114,7 @@ export class BattleScene extends Scene {
   private statusLayer!: GameObjects.Graphics;
   private targetLayer!: GameObjects.Graphics;
   private ghost!: GameObjects.Image;
+  private placementText!: GameObjects.Text;
   private latestPointer = { x: 800, y: 500 };
   private previousPhase: MatchSnapshot['phase'] | null = null;
   private previousRemainingMs = 0;
@@ -168,6 +174,18 @@ export class BattleScene extends Scene {
       .setDisplaySize(112, 112)
       .setAlpha(0.64)
       .setDepth(7)
+      .setVisible(false);
+    this.placementText = this.add
+      .text(this.latestPointer.x, this.latestPointer.y, '', {
+        color: '#c8fff4',
+        backgroundColor: '#061014',
+        fontFamily: 'Arial, sans-serif',
+        fontSize: '18px',
+        fontStyle: 'bold',
+        padding: { x: 10, y: 5 },
+      })
+      .setOrigin(0.5, 1)
+      .setDepth(9)
       .setVisible(false);
 
     this.input.on('pointermove', (pointer: Input.Pointer) => {
@@ -295,8 +313,11 @@ export class BattleScene extends Scene {
         previousX: unit.x,
         previousY: unit.y,
         movingUntilMs: 0,
+        gaitStartedAtMs: this.time.now,
+        gaitStopsAtMs: 0,
         direction: getInitialArenaUnitDirection(unit.team),
         flipX: false,
+        state: 'idle',
       };
       this.unitMotion.set(unit.id, motion);
     }
@@ -316,26 +337,35 @@ export class BattleScene extends Scene {
       phase,
       hp: unit.hp,
       disabledMs: unit.disabledMs,
+      previousState: motion.state,
+      gaitStartedAtMs: motion.gaitStartedAtMs,
+      gaitStopsAtMs: motion.gaitStopsAtMs,
     });
     const flipX = selectArenaUnitFlipX(unit.facing, motion.flipX);
-    const moving = pose.state === 'moving';
-    const gaitSign = pose.gaitFrame === 0 ? -1 : 1;
+    const moving = pose.state === 'moving' || pose.state === 'settling';
+    const gaitTheta = pose.gaitPhase * Math.PI * 2;
+    const gaitWave = Math.sin(gaitTheta);
     const bobStrength = unit.kind === 'drone' ? 3.4 : unit.kind === 'swarm' || unit.kind === 'microbot' ? 2.5 : 1.8;
     const idleHover = unit.kind === 'drone' && pose.state === 'idle' ? Math.sin(this.time.now / 180) * 1.25 : 0;
-    const bob = (moving ? (pose.gaitFrame === 0 ? 0.55 : -bobStrength) : idleHover) * getPerspectiveScale(unit.y);
+    const bobLocal = gaitWave >= 0 ? -gaitWave * bobStrength : -gaitWave * 0.55;
+    const bob = (moving ? bobLocal : idleHover) * getPerspectiveScale(unit.y);
     const leanStrength = unit.kind === 'drone' ? 0.055 : unit.kind === 'brute' || unit.kind === 'vector' ? 0.032 : 0.04;
-    const lean = moving ? gaitSign * leanStrength * (flipX ? -1 : 1) : 0;
+    const lean = moving ? gaitWave * leanStrength * (flipX ? -1 : 1) : 0;
+    const heightScale = moving ? 1 - 0.0125 * (1 - Math.cos(gaitTheta)) : 1;
 
     motion.previousX = unit.x;
     motion.previousY = unit.y;
     motion.movingUntilMs = pose.movingUntilMs;
+    motion.gaitStartedAtMs = pose.gaitStartedAtMs;
+    motion.gaitStopsAtMs = pose.gaitStopsAtMs;
     motion.direction = pose.direction;
     motion.flipX = flipX;
+    motion.state = pose.state;
 
     sprite
       .setFrame(pose.frame)
       .setPosition(unit.x, unit.y + bob)
-      .setDisplaySize(size, displayHeight * (moving && pose.gaitFrame === 0 ? 0.975 : 1))
+      .setDisplaySize(size, displayHeight * heightScale)
       .setDepth(5 + unit.y / 1000)
       .setRotation(lean)
       .setFlipX(flipX)
@@ -377,7 +407,7 @@ export class BattleScene extends Scene {
     const frame = core
       ? tower.team === 'player' ? 1 : 3
       : TOWER_WEAPONS[tower.weapon].frame;
-    const size = (tower.kind === 'core' ? 238 : 182) * getPerspectiveScale(tower.y);
+    const size = TOWER_VISUAL_SIZE[tower.kind] * getPerspectiveScale(tower.y);
     if (!sprite) {
       sprite = this.add
         .image(tower.x, tower.y, texture, frame)
@@ -523,10 +553,13 @@ export class BattleScene extends Scene {
     for (const tower of towers) {
       if (tower.hp <= 0) continue;
       const scale = getPerspectiveScale(tower.y);
-      const width = (tower.kind === 'core' ? 150 : 112) * scale;
+      const width = (tower.kind === 'core' ? 128 : 92) * scale;
+      const healthY = tower.team === 'enemy'
+        ? tower.y + (tower.kind === 'core' ? 61 : 49) * scale
+        : tower.y - (tower.kind === 'core' ? 86 : 69) * scale;
       this.drawHealthBar(
         tower.x - width / 2,
-        tower.y - (tower.kind === 'core' ? 102 : 82) * scale,
+        healthY,
         width,
         tower.hp / tower.maxHp,
         tower.team,
@@ -611,6 +644,14 @@ export class BattleScene extends Scene {
       for (const point of zone.points.slice(1)) this.deployLayer.lineTo(point.x, point.y);
       this.deployLayer.closePath().strokePath();
     }
+
+    // Enemy coverage is tactical information while choosing a deployment.
+    for (const tower of snapshot.towers) {
+      if (tower.team !== 'enemy' || tower.hp <= 0) continue;
+      this.deployLayer
+        .lineStyle(tower.kind === 'core' ? 2 : 1, ENEMY_COLOR, tower.kind === 'core' ? 0.18 : 0.13)
+        .strokeCircle(tower.x, tower.y, tower.range);
+    }
   }
 
   private updateGhost(): void {
@@ -619,11 +660,18 @@ export class BattleScene extends Scene {
     this.targetLayer.clear();
     if (!snapshot.selected || snapshot.phase !== 'playing') {
       this.ghost.setVisible(false);
+      this.placementText.setVisible(false);
       return;
     }
 
     const card = CARDS[snapshot.selected];
-    const valid = this.isPreviewValid(snapshot, snapshot.selected, this.latestPointer.x, this.latestPointer.y);
+    const feedback = evaluatePlacement('player', snapshot.selected, this.latestPointer.x, this.latestPointer.y, {
+      charge: snapshot.charge.player,
+      commanderDeployed: snapshot.commander.player.deployed,
+      towers: snapshot.towers,
+      installations: snapshot.installations,
+    });
+    const valid = feedback.valid;
     const color = valid ? this.cardColor(card, 'player') : INVALID_COLOR;
     const scale = getPerspectiveScale(this.latestPointer.y);
     let size: number;
@@ -672,22 +720,24 @@ export class BattleScene extends Scene {
       .lineBetween(x + radius * 0.58, y, x + radius + 12, y)
       .lineBetween(x, y - radius - 12, x, y - radius * 0.58)
       .lineBetween(x, y + radius * 0.58, x, y + radius + 12);
-  }
 
-  private isPreviewValid(snapshot: MatchSnapshot, cardId: CardId, x: number, y: number): boolean {
-    const card = CARDS[cardId];
-    if (snapshot.charge.player + 0.001 < card.cost) return false;
-    if (card.category === 'commander' && snapshot.commander.player.deployed) return false;
-    if (card.category === 'program') return isProgramTargetPoint(x, y);
-    if (!isDeploymentPoint('player', x, y, snapshot.towers)) return false;
-    const blockedByTower = snapshot.towers.some(
-      (tower) => tower.hp > 0 && Math.hypot(tower.x - x, tower.y - y) < (tower.kind === 'core' ? 112 : 88),
-    );
-    if (blockedByTower) return false;
-    if (card.category !== 'installation') return true;
-    return !snapshot.installations.some(
-      (installation) => installation.hp > 0 && Math.hypot(installation.x - x, installation.y - y) < 96,
-    );
+    if (card.category === 'unit' || card.category === 'commander') {
+      const range = getEffectiveRobotStats(card.id as RobotKind, snapshot.upgrades.player[card.id as Exclude<RobotKind, 'microbot'>]).range;
+      this.targetLayer.lineStyle(1, color, valid ? 0.2 : 0.1).strokeCircle(x, y, range);
+      const routeY = y > 340 ? 335 : y > 275 ? 270 : 118;
+      this.targetLayer
+        .lineStyle(2, color, valid ? 0.42 : 0.16)
+        .lineBetween(x, y, getLaneX(feedback.lane, routeY), routeY);
+    } else if (card.category === 'installation' && card.range > 0) {
+      this.targetLayer.lineStyle(1, color, valid ? 0.22 : 0.1).strokeCircle(x, y, card.range);
+    }
+
+    this.placementText
+      .setVisible(true)
+      .setText(`${valid ? '✓' : '×'} ${feedback.message}`)
+      .setColor(valid ? '#c8fff4' : '#ffd2cc')
+      .setBackgroundColor(valid ? '#061a1a' : '#230d0d')
+      .setPosition(Math.max(150, Math.min(1450, x)), Math.max(42, y - radius - 16));
   }
 
   private cardColor(card: CardDefinition, team: Team): number {
@@ -724,8 +774,12 @@ export class BattleScene extends Scene {
         const color = event.amount < 0 ? 0x85ffd8 : event.team === 'player' ? 0x48f4e0 : 0xff8a63;
         const pulse = this.add.circle(event.x, event.y, 8, color, 0.9).setDepth(7.8);
         this.tweens.add({ targets: pulse, scale: 2.8, alpha: 0, duration: 180, onComplete: () => pulse.destroy() });
+        this.showCombatNumber(event.x, event.y, event.amount, color);
         return;
       }
+      case 'playRejected':
+        if (event.team === 'player') this.cameras.main.shake(90, 0.0018);
+        return;
       case 'towerDestroyed': {
         const color = teamColor(event.tower.team);
         this.cameras.main.shake(260, 0.007);
@@ -753,6 +807,21 @@ export class BattleScene extends Scene {
 
   private showProjectile(event: Extract<GameEvent, { type: 'projectileFired' }>): void {
     this.pendingAttacks.set(event.attackId, { projectile: event.projectile, deaths: [] });
+
+    const lockColor = teamColor(event.source.team);
+    const targetLock = this.trackCombatVfx(
+      this.add
+        .circle(event.target.x, event.target.y, Math.max(12, event.target.radius * 0.58), lockColor, 0)
+        .setStrokeStyle(2, lockColor, 0.55)
+        .setDepth(7.15),
+    );
+    this.tweens.add({
+      targets: targetLock,
+      scale: 1.35,
+      alpha: 0,
+      duration: 260,
+      onComplete: () => this.destroyCombatVfx(targetLock),
+    });
 
     const sourceOrigin = this.getProjectileSourceOrigin(event.source);
     const dx = event.target.x - sourceOrigin.x;
@@ -1060,6 +1129,29 @@ export class BattleScene extends Scene {
     this.spawnRing(event.x, event.y, color, 26, OVERDRIVE_AURA_RADIUS, 520, 8.8);
     this.spawnRing(event.x, event.y, 0xfff2b5, 18, OVERDRIVE_AURA_RADIUS * 0.68, 380, 8.9, 70);
     this.cameras.main.shake(150, 0.0035);
+  }
+
+  private showCombatNumber(x: number, y: number, amount: number, color: number): void {
+    const rounded = Math.max(1, Math.round(Math.abs(amount)));
+    const label = this.add
+      .text(x, y - 26 * getPerspectiveScale(y), `${amount < 0 ? '+' : '−'}${rounded}`, {
+        color: amount < 0 ? '#9fffdc' : color === ENEMY_COLOR ? '#ffb0a5' : '#d6fff8',
+        fontFamily: 'Arial, sans-serif',
+        fontSize: `${Math.round(16 * getPerspectiveScale(y) + 7)}px`,
+        fontStyle: 'bold',
+        stroke: '#031013',
+        strokeThickness: 4,
+      })
+      .setOrigin(0.5)
+      .setDepth(9.4);
+    this.tweens.add({
+      targets: label,
+      y: label.y - 34,
+      alpha: 0,
+      duration: 620,
+      ease: 'Quad.Out',
+      onComplete: () => label.destroy(),
+    });
   }
 
   private spawnBurstIcon(

@@ -116,7 +116,7 @@ button:focus-visible {
   right: 0;
   left: 0;
   width: 100% !important;
-  height: 76% !important;
+  height: 80% !important;
   overflow: hidden;
   background: #03090d;
 }
@@ -154,7 +154,7 @@ button:focus-visible {
   bottom: 0;
   left: 0;
   z-index: 0;
-  height: 24%;
+  height: 20%;
   border-top: 1px solid rgba(83, 205, 194, 0.34);
   background:
     linear-gradient(180deg, rgba(10, 24, 30, 0.99), rgba(4, 12, 16, 1));
@@ -171,7 +171,7 @@ button:focus-visible {
   left: 0;
   display: grid;
   grid-template-columns: 1fr 22% 1fr;
-  height: 9.2%;
+  height: 7.4%;
   align-items: start;
   background: linear-gradient(180deg, rgba(3, 10, 14, 0.96), rgba(5, 15, 20, 0.82) 68%, transparent);
   filter: drop-shadow(0 10px 14px rgba(0, 0, 0, 0.4));
@@ -179,7 +179,7 @@ button:focus-visible {
 
 .pilot {
   display: flex;
-  height: 72%;
+  height: 78%;
   align-items: center;
   gap: 2.1%;
   padding: 0 5.5%;
@@ -349,7 +349,7 @@ button:focus-visible {
 
 .match-clock {
   display: grid;
-  min-height: 88%;
+  min-height: 92%;
   align-content: center;
   justify-items: center;
   padding: 2.5% 0 1%;
@@ -385,11 +385,12 @@ button:focus-visible {
 
 .guidance-toast {
   position: absolute;
-  top: 12.2%;
-  left: 50%;
-  min-width: 25%;
+  top: 8.4%;
+  left: 2.2%;
+  width: 25%;
+  min-width: 0;
   padding: 0.65% 2.4%;
-  transform: translateX(-50%);
+  transform: none;
   border: 1px solid rgba(40, 231, 210, 0.58);
   background: rgba(5, 17, 22, 0.9);
   color: var(--mint);
@@ -398,19 +399,78 @@ button:focus-visible {
   font-weight: 800;
   letter-spacing: 0.13em;
   text-align: center;
-  animation: signal-in 280ms ease-out both;
+  animation: guidance-in 280ms ease-out both;
+}
+
+.tutorial-coach {
+  position: absolute;
+  z-index: 70;
+  top: 10.5%;
+  left: 50%;
+  display: grid;
+  width: min(460px, 38%);
+  justify-items: center;
+  gap: 0.42em;
+  padding: 0.9% 1.5%;
+  transform: translateX(-50%);
+  border: 1px solid rgba(255, 201, 87, 0.72);
+  background: rgba(5, 16, 21, 0.96);
+  color: #f4fff9;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.52), inset 0 0 24px rgba(255, 201, 87, 0.05);
+  text-align: center;
+  clip-path: polygon(12px 0, calc(100% - 12px) 0, 100% 12px, 100% calc(100% - 12px), calc(100% - 12px) 100%, 12px 100%, 0 calc(100% - 12px), 0 12px);
+}
+
+.tutorial-coach > span {
+  color: var(--amber);
+  font-size: clamp(0.38rem, 0.56vw, 0.58rem);
+  font-weight: 900;
+  letter-spacing: 0.14em;
+}
+
+.tutorial-coach > strong {
+  font-size: clamp(0.7rem, 1.1vw, 1.15rem);
+  letter-spacing: 0.08em;
+}
+
+.tutorial-coach p {
+  margin: 0;
+  color: #9cb8b5;
+  font-size: clamp(0.43rem, 0.63vw, 0.66rem);
+  line-height: 1.45;
+}
+
+.tutorial-coach button {
+  padding: 0.48em 1.1em;
+  border: 1px solid rgba(255, 201, 87, 0.46);
+  background: rgba(255, 201, 87, 0.08);
+  color: #f1ce7d;
+  cursor: pointer;
+  font: inherit;
+  font-size: clamp(0.36rem, 0.52vw, 0.54rem);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.tutorial-select,
+.tutorial-placement,
+.tutorial-relay {
+  top: 15%;
+  left: 2.2%;
+  width: 25%;
+  transform: none;
 }
 
 .command-rail {
   position: absolute;
-  right: 8.65%;
-  bottom: 0.8%;
-  left: 14.25%;
+  right: 10.6%;
+  bottom: 0.35%;
+  left: 16.4%;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 13.6% 11.4%;
-  grid-template-rows: minmax(0, 1fr) 20%;
+  grid-template-rows: minmax(0, 1fr) 18%;
   z-index: 2;
-  height: 22.35%;
+  height: 16.2%;
   gap: clamp(3px, 0.42vw, 7px);
   pointer-events: none;
 }
@@ -925,6 +985,7 @@ button:focus-visible {
 }
 
 .charge-segments i {
+  --fill: 0;
   position: relative;
   overflow: hidden;
   border: 1px solid rgba(77, 162, 160, 0.22);
@@ -938,8 +999,8 @@ button:focus-visible {
   background: linear-gradient(180deg, #53f9e5, #19bfbd);
   box-shadow: inset 0 0 7px rgba(217, 255, 247, 0.45);
   content: "";
-  opacity: var(--fill);
-  transform: scaleX(var(--fill));
+  opacity: var(--fill, 0);
+  transform: scaleX(var(--fill, 0));
   transform-origin: left;
 }
 
@@ -1755,6 +1816,11 @@ kbd {
 @keyframes signal-in {
   from { opacity: 0; transform: translate(-50%, -8px); }
   to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+@keyframes guidance-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes robot-lab-in {

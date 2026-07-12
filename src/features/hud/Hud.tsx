@@ -37,6 +37,12 @@ function SoundIcon({ muted }: { muted: boolean }) {
   );
 }
 
+const STAGE_LABELS = {
+  opening: 'OPENING · CHARGE +25%',
+  'relay-war': 'RELAY WAR',
+  'core-surge': 'CORE SURGE · CHARGE ×2',
+} as const;
+
 export function Hud({
   snapshot,
   pilotId,
@@ -67,7 +73,7 @@ export function Hud({
 
         <div className={`match-clock${snapshot.chargeOverclock ? ' is-charge-overclock' : ''}`} aria-label={`${formatClock(snapshot.remainingMs)} remaining`}>
           <time>{formatClock(snapshot.remainingMs)}</time>
-          <span>{snapshot.chargeOverclock ? 'CHARGE ×2' : GAME_MODES[snapshot.modeId].shortName}</span>
+          <span>{STAGE_LABELS[snapshot.stage]} · {GAME_MODES[snapshot.modeId].shortName}</span>
         </div>
 
         <div className="pilot pilot-enemy">

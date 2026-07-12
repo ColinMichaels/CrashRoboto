@@ -3,6 +3,7 @@ import {
   DEFAULT_ENEMY_DECK,
   DEFAULT_GAME_MODE_ID,
   DEFAULT_PLAYER_DECK,
+  ENEMY_BRIDGE_EDGE_Y,
   FIXED_STEP_MS,
   GAME_MODES,
   HAND_SIZE,
@@ -12,9 +13,11 @@ import {
   OVERDRIVE_COOLDOWN_MS,
   OVERDRIVE_COST,
   OVERDRIVE_DURATION_MS,
+  PLAYER_BRIDGE_EDGE_Y,
   PROGRAMS,
   PROGRAM_TOWER_DAMAGE_MULTIPLIER,
   ROBOTS,
+  TOWER_COMBAT_RADIUS,
   cloneRobotUpgrades,
   createDefaultMatchConfig,
   createDefaultTowerWeapons,
@@ -22,6 +25,7 @@ import {
   createTowers,
   getEffectiveRobotStats,
   getLaneX,
+  getMatchStage,
   getOpponent,
   getUpgradeCost,
   normalizePlayerUpgrades,
@@ -29,10 +33,9 @@ import {
 } from './content';
 import {
   hasDeploymentBreach,
-  isDeploymentPoint,
-  isProgramTargetPoint,
 } from './deployment';
 import { SCORE_AWARDS } from './progression';
+import { evaluatePlacement } from './placementFeedback';
 import type {
   CardId,
   CombatEntityRef,
@@ -227,17 +230,23 @@ export class MatchEngine {
     const dtMs = Math.max(0, Math.min(ms, 250));
     const dt = dtMs / 1000;
     const mode = GAME_MODES[this.modeId];
-    const wasOverclock = this.remainingMs <= mode.overclockThresholdMs;
+    const previousStage = getMatchStage(mode, this.remainingMs);
     this.remainingMs = Math.max(0, this.remainingMs - dtMs);
-    const chargeOverclock = this.remainingMs <= mode.overclockThresholdMs;
+    const stage = getMatchStage(mode, this.remainingMs);
+    const chargeOverclock = stage === 'core-surge';
 
-    if (chargeOverclock && !wasOverclock && !this.overclockAnnounced) {
+    if (stage !== previousStage && stage === 'relay-war') {
+      this.guidance = 'RELAY WAR — BREACH A LANE';
+      this.guidanceMs = 3_000;
+    }
+    if (chargeOverclock && previousStage !== 'core-surge' && !this.overclockAnnounced) {
       this.overclockAnnounced = true;
-      this.guidance = 'CHARGE SURGE — REGEN ×2';
+      this.guidance = 'CORE SURGE — CHARGE REGEN ×2';
       this.guidanceMs = 3_200;
     }
 
-    const regenPerSecond = mode.chargeRegenPerSecond * (chargeOverclock ? 2 : 1);
+    const regenMultiplier = chargeOverclock ? 2 : stage === 'opening' ? 1.25 : 1;
+    const regenPerSecond = mode.chargeRegenPerSecond * regenMultiplier;
     this.charge.player = Math.min(MAX_CHARGE, this.charge.player + regenPerSecond * dt);
     this.charge.enemy = Math.min(MAX_CHARGE, this.charge.enemy + regenPerSecond * dt);
     this.playDebounce.player = Math.max(0, this.playDebounce.player - dtMs);
@@ -276,6 +285,7 @@ export class MatchEngine {
       decks: cloneDecks(this.decks),
       remainingMs: this.remainingMs,
       chargeOverclock: this.remainingMs <= mode.overclockThresholdMs,
+      stage: getMatchStage(mode, this.remainingMs),
       charge: { ...this.charge },
       score: { ...this.score },
       battleScore: { ...this.battleScore },
@@ -345,7 +355,7 @@ export class MatchEngine {
     this.commanderCooldown = { player: 0, enemy: 0 };
     this.upgrades = createUpgradeBook(this.configuredPlayerUpgrades);
     this.result = null;
-    this.guidance = phase === 'playing' ? 'SELECT A COMMAND CHIP' : null;
+    this.guidance = phase === 'playing' ? 'OPENING WINDOW — CHARGE REGEN +25%' : null;
     this.guidanceMs = phase === 'playing' ? 4_000 : 0;
     this.overclockAnnounced = false;
     this.unitCounter = 0;
@@ -379,8 +389,26 @@ export class MatchEngine {
     if (this.phase !== 'playing' || this.playDebounce[team] > 0) return this.reject(team, 'phase');
     if (card.category === 'commander' && this.getCommanderUnit(team)) return this.reject(team, 'unique');
     if (!this.hands[team].includes(cardId)) return this.reject(team, 'hand');
-    if (this.charge[team] + 0.001 < card.cost) return this.reject(team, 'charge');
-    if (!this.isValidTarget(team, cardId, x, y)) return this.reject(team, 'zone');
+    const placement = evaluatePlacement(team, cardId, x, y, {
+      charge: this.charge[team],
+      commanderDeployed: Boolean(this.getCommanderUnit(team)),
+      towers: this.towers,
+      installations: this.installations,
+    });
+    if (!placement.valid) {
+      if (team === 'player') {
+        this.guidance = placement.message;
+        this.guidanceMs = 2_200;
+      }
+      return this.reject(
+        team,
+        placement.failure === 'charge'
+          ? 'charge'
+          : placement.failure === 'unique'
+            ? 'unique'
+            : 'zone',
+      );
+    }
 
     this.charge[team] = Math.max(0, this.charge[team] - card.cost);
     this.rotateHand(team, cardId);
@@ -406,21 +434,6 @@ export class MatchEngine {
     this.emit({ type: 'cardPlayed', team, cardId, x, y });
     this.revision += 1;
     return true;
-  }
-
-  private isValidTarget(team: Team, cardId: CardId, x: number, y: number): boolean {
-    const card = CARDS[cardId];
-    if (card.category === 'program') return isProgramTargetPoint(x, y);
-
-    if (!isDeploymentPoint(team, x, y, this.towers)) return false;
-    const blockedByTower = this.towers.some(
-      (tower) => tower.hp > 0 && distance(tower, { x, y }) < (tower.kind === 'core' ? 112 : 88),
-    );
-    if (blockedByTower) return false;
-    if (card.category !== 'installation') return true;
-    return !this.installations.some(
-      (installation) => installation.hp > 0 && distance(installation, { x, y }) < 96,
-    );
   }
 
   private rotateHand(team: Team, cardId: CardId): void {
@@ -600,8 +613,14 @@ export class MatchEngine {
       if (tower.hp <= 0) continue;
       tower.cooldown = Math.max(0, tower.cooldown - dt);
       if (tower.cooldown > 0) continue;
+      if (tower.kind === 'core' && !this.isCoreDefenseAwake(tower.team)) continue;
       const target = this.units
-        .filter((unit) => unit.team !== tower.team && unit.hp > 0 && distance(unit, tower) <= tower.range)
+        .filter((unit) =>
+          unit.team !== tower.team &&
+          unit.hp > 0 &&
+          this.hasCrossedBridgeForDefense(tower.team, unit.y) &&
+          distance(unit, tower) <= tower.range,
+        )
         .sort((a, b) => distance(a, tower) - distance(b, tower))[0];
       if (!target) continue;
       const attackId = this.fireProjectile(
@@ -618,6 +637,7 @@ export class MatchEngine {
             secondary.id === target.id ||
             secondary.team === tower.team ||
             secondary.hp <= 0 ||
+            !this.hasCrossedBridgeForDefense(tower.team, secondary.y) ||
             distance(secondary, target) > tower.splashRadius
           ) continue;
           this.damageUnit(
@@ -631,6 +651,18 @@ export class MatchEngine {
       }
       tower.cooldown = tower.attackInterval;
     }
+  }
+
+  private isCoreDefenseAwake(team: Team): boolean {
+    return this.towers.some(
+      (tower) => tower.team === team && tower.kind === 'relay' && tower.hp <= 0,
+    );
+  }
+
+  private hasCrossedBridgeForDefense(defendingTeam: Team, unitY: number): boolean {
+    return defendingTeam === 'enemy'
+      ? unitY <= ENEMY_BRIDGE_EDGE_Y
+      : unitY >= PLAYER_BRIDGE_EDGE_Y;
   }
 
   private updateUnits(dt: number, dtMs: number): void {
@@ -682,7 +714,7 @@ export class MatchEngine {
 
       const structure = this.getStructureTarget(unit);
       if (!structure) continue;
-      const structurePadding = isInstallation(structure) ? structure.radius : structure.kind === 'core' ? 70 : 50;
+      const structurePadding = isInstallation(structure) ? structure.radius : TOWER_COMBAT_RADIUS[structure.kind];
       const attackDistance = stats.range + structurePadding;
       if (distance(unit, structure) <= attackDistance) {
         if (unit.cooldown === 0) this.attackStructure(unit, structure);
@@ -728,11 +760,11 @@ export class MatchEngine {
 
   private getRouteDestination(unit: UnitState, structure: TowerState): { x: number; y: number } {
     if (unit.team === 'player') {
-      if (unit.y > 340) return { x: getLaneX(unit.lane, 335), y: 335 };
-      if (unit.y > 275) return { x: getLaneX(unit.lane, 270), y: 270 };
+      if (unit.y > PLAYER_BRIDGE_EDGE_Y) return { x: getLaneX(unit.lane, 335), y: 335 };
+      if (unit.y > ENEMY_BRIDGE_EDGE_Y) return { x: getLaneX(unit.lane, 270), y: 270 };
     } else {
-      if (unit.y < 275) return { x: getLaneX(unit.lane, 278), y: 278 };
-      if (unit.y < 340) return { x: getLaneX(unit.lane, 345), y: 345 };
+      if (unit.y < ENEMY_BRIDGE_EDGE_Y) return { x: getLaneX(unit.lane, 278), y: 278 };
+      if (unit.y < PLAYER_BRIDGE_EDGE_Y) return { x: getLaneX(unit.lane, 345), y: 345 };
     }
     return structure;
   }
@@ -770,7 +802,7 @@ export class MatchEngine {
       team: tower.team,
       x: tower.x,
       y: tower.y,
-      radius: tower.kind === 'core' ? 70 : 50,
+      radius: TOWER_COMBAT_RADIUS[tower.kind],
     };
   }
 
