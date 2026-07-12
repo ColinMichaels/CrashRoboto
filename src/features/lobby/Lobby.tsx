@@ -10,6 +10,7 @@ import {
   TOWER_WEAPON_IDS,
 } from '../../game/core/content';
 import { getXpForLevel, MAX_PLAYER_LEVEL } from '../../game/core/progression';
+import { DECK_PRESETS, getDeckGuidance, type DeckPresetId } from '../../game/core/deckGuidance';
 import { PILOTS, PILOT_IDS, type PilotId } from '../../game/core/pilots';
 import type {
   CardCategory,
@@ -44,6 +45,9 @@ export interface LobbyProps {
   onRemoveCard: (cardId: CardId) => void;
   onUpgradeRobot: (robotId: RobotCardId, stat: UpgradeStat) => void;
   onDowngradeRobot: (robotId: RobotCardId, stat: UpgradeStat) => void;
+  onApplyDeckPreset: (presetId: DeckPresetId) => void;
+  onStartTutorial: () => void;
+  tutorialCompleted: boolean;
   onReset: () => void;
   onLaunch: () => void;
   muted: boolean;
@@ -162,7 +166,7 @@ function CardChip({ card, upgrades, selected = false, selectedIndex, disabled = 
         : ' Activate to add to the loadout.';
 
   return (
-    <div className={`lobby-card-shell lobby-card-shell-${variant} category-${card.category}`}>
+    <div className={`lobby-card-shell lobby-card-shell-${variant}${onInspect ? ' has-lab' : ''} category-${card.category}`}>
       <button
         className={`lobby-card lobby-card-${variant} category-${card.category}${selected ? ' is-selected' : ''}`}
         type="button"
@@ -266,6 +270,9 @@ export function Lobby({
   onRemoveCard,
   onUpgradeRobot,
   onDowngradeRobot,
+  onApplyDeckPreset,
+  onStartTutorial,
+  tutorialCompleted,
   onReset,
   onLaunch,
   muted,
@@ -285,6 +292,7 @@ export function Lobby({
   const nextLevelXp = getXpForLevel(Math.min(MAX_PLAYER_LEVEL, playerLevel + 1));
   const levelXp = playerXp - currentLevelXp;
   const levelXpTarget = Math.max(0, nextLevelXp - currentLevelXp);
+  const deckGuidance = getDeckGuidance(selectedDeck);
   const selectedModeDefinition = GAME_MODES[selectedMode];
   const selectedPilotDefinition = PILOTS[selectedPilot];
   const lobbyStyle = {
@@ -382,6 +390,9 @@ export function Lobby({
           <h1 id="lobby-title">CRASH ROBOTO</h1>
         </div>
         <div className="lobby-pilot">
+          <button className="lobby-training-button" type="button" onClick={onStartTutorial}>
+            TRAINING{tutorialCompleted ? ' ✓' : ''}
+          </button>
           <button
             className="lobby-sound-button"
             type="button"
@@ -513,7 +524,14 @@ export function Lobby({
         <section className="lobby-panel lobby-loadout-panel" aria-labelledby="active-loadout-title">
           <div className="lobby-panel-heading">
             <h2 id="active-loadout-title">ACTIVE LOADOUT</h2>
-            <span>4 ONLINE <i>•</i> SHUFFLED ROTATION</span>
+            <div className="lobby-deck-tools">
+              <span className={deckGuidance[0].includes('READY') ? 'is-ready' : ''}>{deckGuidance[0]}</span>
+              <div role="group" aria-label="Starter deck presets">
+                {(Object.entries(DECK_PRESETS) as [DeckPresetId, (typeof DECK_PRESETS)[DeckPresetId]][]).map(([presetId, preset]) => (
+                  <button key={presetId} type="button" onClick={() => onApplyDeckPreset(presetId)}>{preset.name}</button>
+                ))}
+              </div>
+            </div>
           </div>
           <div className="lobby-loadout-grid" role="list" aria-label={`Active loadout, ${selectedDeck.length} of ${DECK_SIZE} chips selected`}>
             {Array.from({ length: DECK_SIZE }, (_, index) => {

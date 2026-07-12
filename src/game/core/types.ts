@@ -1,6 +1,7 @@
 export type Team = 'player' | 'enemy';
 export type Lane = 'left' | 'right';
 export type MatchPhase = 'menu' | 'playing' | 'paused' | 'ended';
+export type MatchStage = 'opening' | 'relay-war' | 'core-surge';
 export type GameModeId = 'core-siege' | 'turbo-grid' | 'relay-rush';
 
 export type TechClass = 'standard' | 'advanced' | 'prototype' | 'exotic' | 'commander';
@@ -240,6 +241,7 @@ export interface MatchSnapshot {
   decks: Record<Team, CardId[]>;
   remainingMs: number;
   chargeOverclock: boolean;
+  stage: MatchStage;
   charge: Record<Team, number>;
   score: Record<Team, number>;
   battleScore: Record<Team, number>;

@@ -12,8 +12,16 @@ export const UNIT_DIRECTION_HYSTERESIS = 0.18;
 export const UNIT_FLIP_HYSTERESIS = 0.16;
 
 export type ArenaUnitDirection = 'away' | 'toward';
-export type ArenaUnitGaitFrame = 0 | 1;
-export type ArenaUnitPoseState = 'moving' | 'idle' | 'paused' | 'disabled' | 'dead';
+export type ArenaUnitGaitFrame = 0 | 1 | 2;
+export type ArenaUnitPoseState = 'moving' | 'settling' | 'idle' | 'paused' | 'disabled' | 'dead';
+
+export const ARENA_UNIT_GAIT_FRAME_COUNT = 3;
+
+/**
+ * The third render bridges the two key poses in both directions so the loop
+ * does not snap directly from one extreme to the other.
+ */
+export const ARENA_UNIT_GAIT_SEQUENCE: readonly ArenaUnitGaitFrame[] = [0, 2, 1, 2];
 
 export const ARENA_UNIT_KINDS: readonly RobotKind[] = [
   'zip',
@@ -45,29 +53,29 @@ export const ARENA_UNIT_ATLAS_ROW: Readonly<Record<RobotKind, number>> = {
   microbot: 1,
 };
 
-/**
- * Columns 2 and 5 contain less stable transition renders and are deliberately
- * excluded. Each direction alternates only between its two production frames.
- */
+/** Two key poses plus one transition render are available for each direction. */
 export const ARENA_UNIT_DIRECTION_COLUMNS: Readonly<
-  Record<ArenaUnitDirection, readonly [number, number]>
+  Record<ArenaUnitDirection, readonly [number, number, number]>
 > = {
-  away: [0, 1],
-  toward: [3, 4],
+  away: [0, 1, 2],
+  toward: [3, 4, 5],
 };
 
-/** Frames per second for the two-frame gait. Faster chassis cycle more often. */
+/**
+ * Displayed frames per second for the four-step gait. The rates preserve the
+ * original full-cycle cadence after adding the two transition steps.
+ */
 export const ARENA_UNIT_GAIT_FPS: Readonly<Record<RobotKind, number>> = {
-  zip: 10,
-  swarm: 11,
-  brute: 5,
-  rail: 6,
-  pulse: 8,
-  arc: 7,
-  drone: 9,
-  patch: 7,
-  vector: 7,
-  microbot: 11,
+  zip: 20,
+  swarm: 22,
+  brute: 10,
+  rail: 12,
+  pulse: 16,
+  arc: 14,
+  drone: 18,
+  patch: 14,
+  vector: 14,
+  microbot: 22,
 };
 
 /**
@@ -139,10 +147,11 @@ export function getArenaUnitFrame(
 export function getArenaUnitFrames(
   kind: RobotKind,
   direction: ArenaUnitDirection,
-): readonly [number, number] {
+): readonly [number, number, number] {
   return [
     getArenaUnitFrame(kind, direction, 0),
     getArenaUnitFrame(kind, direction, 1),
+    getArenaUnitFrame(kind, direction, 2),
   ];
 }
 
@@ -163,14 +172,27 @@ function hashUnitId(unitId: string): number {
 }
 
 /**
- * Spreads same-kind units across the two-frame gait without introducing random
- * presentation state. The offset is stable for a unit ID and bounded to one
- * complete gait cycle.
+ * Staggers same-kind units by less than one displayed frame without introducing
+ * random presentation state or changing their configured gait cadence.
  */
-export function getArenaUnitGaitPhaseOffsetMs(kind: RobotKind, unitId: string): number {
+export function getArenaUnitGaitStartDelayMs(kind: RobotKind, unitId: string): number {
   const frameDurationMs = 1_000 / ARENA_UNIT_GAIT_FPS[kind];
-  const cycleDurationMs = frameDurationMs * 2;
-  return (hashUnitId(unitId) / 0x1_0000_0000) * cycleDurationMs;
+  return (hashUnitId(unitId) / 0x1_0000_0000) * frameDurationMs;
+}
+
+function getArenaUnitGaitCycleDurationMs(kind: RobotKind): number {
+  return (1_000 / ARENA_UNIT_GAIT_FPS[kind]) * ARENA_UNIT_GAIT_SEQUENCE.length;
+}
+
+export function getArenaUnitGaitPhase(
+  kind: RobotKind,
+  nowMs: number,
+  phaseOffsetMs = 0,
+): number {
+  const safeNowMs = Number.isFinite(nowMs) ? Math.max(0, nowMs) : 0;
+  const safePhaseOffsetMs = Number.isFinite(phaseOffsetMs) ? Math.max(0, phaseOffsetMs) : 0;
+  const cycleDurationMs = getArenaUnitGaitCycleDurationMs(kind);
+  return ((safeNowMs + safePhaseOffsetMs) % cycleDurationMs) / cycleDurationMs;
 }
 
 export function getArenaUnitGaitFrame(
@@ -178,10 +200,10 @@ export function getArenaUnitGaitFrame(
   nowMs: number,
   phaseOffsetMs = 0,
 ): ArenaUnitGaitFrame {
-  const safeNowMs = Number.isFinite(nowMs) ? Math.max(0, nowMs) : 0;
-  const safePhaseOffsetMs = Number.isFinite(phaseOffsetMs) ? Math.max(0, phaseOffsetMs) : 0;
-  const frameDurationMs = 1_000 / ARENA_UNIT_GAIT_FPS[kind];
-  return (Math.floor((safeNowMs + safePhaseOffsetMs) / frameDurationMs) % 2) as ArenaUnitGaitFrame;
+  const gaitStep = Math.floor(
+    getArenaUnitGaitPhase(kind, nowMs, phaseOffsetMs) * ARENA_UNIT_GAIT_SEQUENCE.length,
+  );
+  return ARENA_UNIT_GAIT_SEQUENCE[gaitStep] ?? 0;
 }
 
 export function getArenaUnitBodyOriginY(
@@ -219,14 +241,20 @@ export interface ResolveUnitPoseInput {
   phase: MatchPhase;
   hp: number;
   disabledMs: number;
+  previousState?: ArenaUnitPoseState;
+  gaitStartedAtMs?: number;
+  gaitStopsAtMs?: number;
 }
 
 export interface ResolvedUnitPose {
   state: ArenaUnitPoseState;
   direction: ArenaUnitDirection;
   gaitFrame: ArenaUnitGaitFrame;
+  gaitPhase: number;
   frame: number;
   movingUntilMs: number;
+  gaitStartedAtMs: number;
+  gaitStopsAtMs: number;
   gaitFps: number;
   bodyHeightRatio: number;
 }
@@ -244,27 +272,67 @@ export function resolveUnitPose(input: ResolveUnitPoseInput): ResolvedUnitPose {
     : input.movingUntilMs;
   const withinMovementGrace = input.nowMs < movingUntilMs;
 
+  const continuingGait = input.previousState === 'moving' || input.previousState === 'settling';
+  const previousGaitStartedAtMs = Number.isFinite(input.gaitStartedAtMs)
+    ? Math.min(input.gaitStartedAtMs ?? input.nowMs, input.nowMs)
+    : input.nowMs;
+  const gaitStartedAtMs = input.phase === 'playing' && withinMovementGrace && !continuingGait
+    ? input.nowMs
+    : previousGaitStartedAtMs;
+  const gaitElapsedMs = Math.max(0, input.nowMs - gaitStartedAtMs);
+  const gaitTimeMs = Math.max(
+    0,
+    gaitElapsedMs - getArenaUnitGaitStartDelayMs(input.kind, input.unitId),
+  );
+  const cycleDurationMs = getArenaUnitGaitCycleDurationMs(input.kind);
+  const currentGaitPhase = getArenaUnitGaitPhase(input.kind, gaitTimeMs);
+  const previousGaitStopsAtMs = Number.isFinite(input.gaitStopsAtMs)
+    ? Math.max(0, input.gaitStopsAtMs ?? 0)
+    : 0;
+
   let state: ArenaUnitPoseState;
+  let gaitStopsAtMs = previousGaitStopsAtMs;
   if (input.hp <= 0) state = 'dead';
   else if (input.disabledMs > 0) state = 'disabled';
   else if (input.phase === 'paused') state = 'paused';
-  else if (input.phase === 'playing' && withinMovementGrace) state = 'moving';
-  else state = 'idle';
+  else if (input.phase === 'playing' && withinMovementGrace) {
+    state = 'moving';
+    gaitStopsAtMs = 0;
+  } else if (
+    input.phase === 'playing' &&
+    input.previousState === 'settling' &&
+    input.nowMs < previousGaitStopsAtMs
+  ) {
+    state = 'settling';
+  } else if (
+    input.phase === 'playing' &&
+    input.previousState === 'moving' &&
+    currentGaitPhase > Number.EPSILON
+  ) {
+    state = 'settling';
+    gaitStopsAtMs = input.nowMs + (1 - currentGaitPhase) * cycleDurationMs;
+  } else {
+    state = 'idle';
+    gaitStopsAtMs = 0;
+  }
 
-  const gaitFrame: ArenaUnitGaitFrame = state === 'moving'
-    ? getArenaUnitGaitFrame(
-      input.kind,
-      input.nowMs,
-      getArenaUnitGaitPhaseOffsetMs(input.kind, input.unitId),
-    )
+  const gaitActive = state === 'moving' || state === 'settling';
+  const gaitFrame: ArenaUnitGaitFrame = gaitActive
+    ? getArenaUnitGaitFrame(input.kind, gaitTimeMs)
+    : 0;
+  const gaitPhase = gaitActive
+    ? currentGaitPhase
     : 0;
 
   return {
     state,
     direction,
     gaitFrame,
+    gaitPhase,
     frame: getArenaUnitFrame(input.kind, direction, gaitFrame),
     movingUntilMs,
+    gaitStartedAtMs,
+    gaitStopsAtMs,
     gaitFps: ARENA_UNIT_GAIT_FPS[input.kind],
     bodyHeightRatio: ARENA_UNIT_BODY_HEIGHT_RATIO[input.kind],
   };

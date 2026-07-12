@@ -8,14 +8,17 @@ import {
   ARENA_UNIT_BODY_HEIGHT_RATIO,
   ARENA_UNIT_DISPLAY_HEIGHT_RATIO,
   ARENA_UNIT_DIRECTION_COLUMNS,
+  ARENA_UNIT_GAIT_FRAME_COUNT,
   ARENA_UNIT_GAIT_FPS,
+  ARENA_UNIT_GAIT_SEQUENCE,
   ARENA_UNIT_KINDS,
   UNIT_MOVEMENT_GRACE_MS,
   getArenaUnitBodyOriginY,
   getArenaUnitFrame,
   getArenaUnitFrames,
   getArenaUnitGaitFrame,
-  getArenaUnitGaitPhaseOffsetMs,
+  getArenaUnitGaitPhase,
+  getArenaUnitGaitStartDelayMs,
   resolveUnitPose,
   selectArenaUnitDirection,
   selectArenaUnitFlipX,
@@ -37,13 +40,19 @@ const basePoseInput: ResolveUnitPoseInput = {
   phase: 'playing',
   hp: 100,
   disabledMs: 0,
+  previousState: 'idle',
+  gaitStartedAtMs: 0,
+  gaitStopsAtMs: 0,
 };
 
 describe('unit presentation', () => {
-  it('maps every robot and direction to the two safe atlas columns', () => {
+  it('maps every robot and direction to two key poses plus a transition frame', () => {
     expect(ARENA_UNIT_ATLAS_FRAME_SIZE).toBe(170);
-    expect(ARENA_UNIT_DIRECTION_COLUMNS.away).toEqual([0, 1]);
-    expect(ARENA_UNIT_DIRECTION_COLUMNS.toward).toEqual([3, 4]);
+    expect(ARENA_UNIT_GAIT_FRAME_COUNT).toBe(3);
+    expect(ARENA_UNIT_GAIT_SEQUENCE).toEqual([0, 2, 1, 2]);
+    expect(new Set(ARENA_UNIT_GAIT_SEQUENCE).size).toBe(ARENA_UNIT_GAIT_FRAME_COUNT);
+    expect(ARENA_UNIT_DIRECTION_COLUMNS.away).toEqual([0, 1, 2]);
+    expect(ARENA_UNIT_DIRECTION_COLUMNS.toward).toEqual([3, 4, 5]);
 
     for (const kind of ARENA_UNIT_KINDS) {
       for (const direction of ['away', 'toward'] as const) {
@@ -51,21 +60,22 @@ describe('unit presentation', () => {
         expect(frames).toEqual([
           getArenaUnitFrame(kind, direction, 0),
           getArenaUnitFrame(kind, direction, 1),
+          getArenaUnitFrame(kind, direction, 2),
         ]);
         for (const frame of frames) {
           expect(frame).toBeGreaterThanOrEqual(0);
           expect(frame).toBeLessThan(ARENA_UNIT_ATLAS_FRAME_COUNT);
           expect(frame % ARENA_UNIT_ATLAS_COLUMNS).toBeOneOf(
-            direction === 'away' ? [0, 1] : [3, 4],
+            direction === 'away' ? [0, 1, 2] : [3, 4, 5],
           );
         }
       }
     }
 
-    expect(getArenaUnitFrames('zip', 'away')).toEqual([0, 1]);
-    expect(getArenaUnitFrames('zip', 'toward')).toEqual([3, 4]);
-    expect(getArenaUnitFrames('vector', 'away')).toEqual([48, 49]);
-    expect(getArenaUnitFrames('vector', 'toward')).toEqual([51, 52]);
+    expect(getArenaUnitFrames('zip', 'away')).toEqual([0, 1, 2]);
+    expect(getArenaUnitFrames('zip', 'toward')).toEqual([3, 4, 5]);
+    expect(getArenaUnitFrames('vector', 'away')).toEqual([48, 49, 50]);
+    expect(getArenaUnitFrames('vector', 'toward')).toEqual([51, 52, 53]);
     expect(getArenaUnitFrames('microbot', 'away')).toEqual(getArenaUnitFrames('swarm', 'away'));
     expect(ARENA_UNIT_ATLAS_ROW.microbot).toBe(ARENA_UNIT_ATLAS_ROW.swarm);
   });
@@ -86,7 +96,7 @@ describe('unit presentation', () => {
     expect(selectArenaUnitFlipX(Number.NaN, true)).toBe(true);
   });
 
-  it('keeps movement active across snapshot gaps and expires at the grace boundary', () => {
+  it('keeps movement active across snapshot gaps and finishes the gait after grace expires', () => {
     const movedAt100 = resolveUnitPose({
       ...basePoseInput,
       x: 501,
@@ -94,65 +104,99 @@ describe('unit presentation', () => {
     });
     expect(movedAt100.state).toBe('moving');
     expect(movedAt100.movingUntilMs).toBe(100 + UNIT_MOVEMENT_GRACE_MS);
+    expect(movedAt100.gaitStartedAtMs).toBe(100);
+    expect(movedAt100.gaitFrame).toBe(0);
+    expect(movedAt100.gaitPhase).toBe(0);
 
     const stillMoving = resolveUnitPose({
       ...basePoseInput,
       nowMs: movedAt100.movingUntilMs - 1,
       movingUntilMs: movedAt100.movingUntilMs,
+      previousState: movedAt100.state,
+      gaitStartedAtMs: movedAt100.gaitStartedAtMs,
     });
     expect(stillMoving.state).toBe('moving');
 
-    const stopped = resolveUnitPose({
+    const settling = resolveUnitPose({
       ...basePoseInput,
       nowMs: movedAt100.movingUntilMs,
       movingUntilMs: movedAt100.movingUntilMs,
+      previousState: stillMoving.state,
+      gaitStartedAtMs: stillMoving.gaitStartedAtMs,
+      gaitStopsAtMs: stillMoving.gaitStopsAtMs,
+    });
+    expect(settling.state).toBe('settling');
+    expect(settling.gaitStopsAtMs).toBeGreaterThan(movedAt100.movingUntilMs);
+
+    const stopped = resolveUnitPose({
+      ...basePoseInput,
+      nowMs: settling.gaitStopsAtMs + 0.001,
+      movingUntilMs: movedAt100.movingUntilMs,
+      previousState: settling.state,
+      gaitStartedAtMs: settling.gaitStartedAtMs,
+      gaitStopsAtMs: settling.gaitStopsAtMs,
     });
     expect(stopped.state).toBe('idle');
     expect(stopped.gaitFrame).toBe(0);
+    expect(stopped.gaitPhase).toBe(0);
   });
 
-  it('alternates between the two safe frames at each robot gait speed', () => {
+  it('places the transition frame between both key poses at each robot gait speed', () => {
     for (const kind of ARENA_UNIT_KINDS) {
       const frameDurationMs = 1_000 / ARENA_UNIT_GAIT_FPS[kind];
       expect(getArenaUnitGaitFrame(kind, 0)).toBe(0);
-      expect(getArenaUnitGaitFrame(kind, frameDurationMs + 0.001)).toBe(1);
-      expect(getArenaUnitGaitFrame(kind, frameDurationMs * 2 + 0.001)).toBe(0);
+      expect(getArenaUnitGaitFrame(kind, frameDurationMs + 0.001)).toBe(2);
+      expect(getArenaUnitGaitFrame(kind, frameDurationMs * 2 + 0.001)).toBe(1);
+      expect(getArenaUnitGaitFrame(kind, frameDurationMs * 3 + 0.001)).toBe(2);
+      expect(getArenaUnitGaitFrame(kind, frameDurationMs * 4 + 0.001)).toBe(0);
 
+      expect(getArenaUnitGaitPhase(kind, 0)).toBe(0);
+      expect(getArenaUnitGaitPhase(kind, frameDurationMs * 2)).toBeCloseTo(0.5);
+      expect(getArenaUnitGaitPhase(kind, frameDurationMs * 4)).toBeCloseTo(0);
+
+      const cycleDurationMs = frameDurationMs * ARENA_UNIT_GAIT_SEQUENCE.length;
+      const nowMs = cycleDurationMs + frameDurationMs + 0.001;
       const resolved = resolveUnitPose({
         ...basePoseInput,
         kind,
-        x: basePoseInput.x + 1,
-        nowMs: frameDurationMs + 0.001,
+        previousState: 'moving',
+        gaitStartedAtMs: 0,
+        movingUntilMs: nowMs + UNIT_MOVEMENT_GRACE_MS,
+        nowMs,
       });
       const expectedGaitFrame = getArenaUnitGaitFrame(
         kind,
-        frameDurationMs + 0.001,
-        getArenaUnitGaitPhaseOffsetMs(kind, basePoseInput.unitId),
+        nowMs - getArenaUnitGaitStartDelayMs(kind, basePoseInput.unitId),
       );
       expect(resolved.gaitFrame).toBe(expectedGaitFrame);
       expect(resolved.frame).toBe(getArenaUnitFrame(kind, 'away', expectedGaitFrame));
     }
   });
 
-  it('uses stable unit-ID phase offsets so same-kind units do not all move in lockstep', () => {
+  it('uses stable sub-frame start delays so same-kind units do not all move in lockstep', () => {
     const unitIds = Array.from({ length: 8 }, (_, index) => `player-zip-${index + 1}`);
     const frameDurationMs = 1_000 / ARENA_UNIT_GAIT_FPS.zip;
-    const cycleDurationMs = frameDurationMs * 2;
+    const cycleDurationMs = frameDurationMs * ARENA_UNIT_GAIT_SEQUENCE.length;
+    const delays = unitIds.map((unitId) => getArenaUnitGaitStartDelayMs('zip', unitId));
 
-    for (const unitId of unitIds) {
-      const offset = getArenaUnitGaitPhaseOffsetMs('zip', unitId);
-      expect(offset).toBe(getArenaUnitGaitPhaseOffsetMs('zip', unitId));
-      expect(offset).toBeGreaterThanOrEqual(0);
-      expect(offset).toBeLessThan(cycleDurationMs);
+    for (const [index, unitId] of unitIds.entries()) {
+      const delay = delays[index];
+      expect(delay).toBe(getArenaUnitGaitStartDelayMs('zip', unitId));
+      expect(delay).toBeGreaterThanOrEqual(0);
+      expect(delay).toBeLessThan(frameDurationMs);
     }
+    expect(new Set(delays).size).toBe(unitIds.length);
 
+    const nowMs = cycleDurationMs + frameDurationMs / 2;
     const frames = unitIds.map((unitId) => resolveUnitPose({
       ...basePoseInput,
       unitId,
-      x: basePoseInput.x + 1,
-      nowMs: 0,
+      previousState: 'moving',
+      gaitStartedAtMs: 0,
+      movingUntilMs: nowMs + UNIT_MOVEMENT_GRACE_MS,
+      nowMs,
     }).gaitFrame);
-    expect(new Set(frames)).toEqual(new Set([0, 1]));
+    expect(new Set(frames).size).toBeGreaterThan(1);
   });
 
   it('lifts unit effect origins from the ground coordinate to the rendered chassis body', () => {
@@ -176,6 +220,7 @@ describe('unit presentation', () => {
     });
     expect(pose.state).toBe(expectedState);
     expect(pose.gaitFrame).toBe(0);
+    expect(pose.gaitPhase).toBe(0);
     expect(pose.frame).toBe(getArenaUnitFrame('zip', 'away', 0));
   });
 

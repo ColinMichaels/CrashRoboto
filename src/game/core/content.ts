@@ -24,6 +24,8 @@ import { BASE_FIRMWARE_BUDGET, MAX_FIRMWARE_BUDGET } from './progression';
 export const BOARD_WIDTH = 1600;
 export const BOARD_HEIGHT = 684;
 export const RIVER_Y = 305;
+export const ENEMY_BRIDGE_EDGE_Y = 275;
+export const PLAYER_BRIDGE_EDGE_Y = 340;
 export const MAX_CHARGE = 10;
 export const FIXED_STEP_MS = 50;
 export const PROGRAM_TOWER_DAMAGE_MULTIPLIER = 0.35;
@@ -33,6 +35,40 @@ export const OVERDRIVE_COOLDOWN_MS = 14_000;
 export const OVERDRIVE_AURA_RADIUS = 180;
 export const DECK_SIZE = 8;
 export const HAND_SIZE = 4;
+export const OPENING_STAGE_MS = 15_000;
+export const TOWER_VISUAL_SIZE = {
+  relay: 148,
+  core: 200,
+} as const;
+export const TOWER_PLACEMENT_CLEARANCE = {
+  relay: 42,
+  core: 52,
+} as const;
+export const TOWER_COMBAT_RADIUS = {
+  relay: 42,
+  core: 54,
+} as const;
+
+// Fixed structure anchors tuned to the mounting pads painted into
+// arena-board-long.png. Core sprites have an optically left-heavy frame, so
+// their anchor is shifted right while the Relay anchors use the pad centers.
+export const TOWER_PAD_POSITIONS = {
+  'enemy-left': { x: 679, y: 82 },
+  'enemy-core': { x: 812, y: 74 },
+  'enemy-right': { x: 923, y: 82 },
+  'player-left': { x: 621, y: 515 },
+  'player-core': { x: 812, y: 535 },
+  'player-right': { x: 975, y: 515 },
+} as const;
+
+export function getMatchStage(
+  mode: GameModeDefinition,
+  remainingMs: number,
+): 'opening' | 'relay-war' | 'core-surge' {
+  if (remainingMs <= mode.overclockThresholdMs) return 'core-surge';
+  if (remainingMs > mode.durationMs - OPENING_STAGE_MS) return 'opening';
+  return 'relay-war';
+}
 
 export const TOWER_WEAPON_IDS: TowerWeaponId[] = ['gun', 'rocket', 'flame'];
 export const DEFAULT_TOWER_WEAPON_ID: TowerWeaponId = 'gun';
@@ -686,15 +722,14 @@ export function createTowers(
   playerWeapons: TowerWeaponLoadout = createDefaultTowerWeapons(),
   enemyWeapons: TowerWeaponLoadout = createDefaultTowerWeapons(),
 ): TowerState[] {
-  // Both networks sit on their rear mounting pads: enemy structures hug the
-  // far edge while the player's mirrored line anchors the near edge.
+  const pads = TOWER_PAD_POSITIONS;
   return [
-    tower('enemy-left', 'enemy', 'relay', 'left', getLaneX('left', 118), 118, relayHpMultiplier, enemyWeapons.left),
-    tower('enemy-core', 'enemy', 'core', 'core', 800, 92, relayHpMultiplier, 'rocket'),
-    tower('enemy-right', 'enemy', 'relay', 'right', getLaneX('right', 118), 118, relayHpMultiplier, enemyWeapons.right),
-    tower('player-left', 'player', 'relay', 'left', getLaneX('left', 550), 550, relayHpMultiplier, playerWeapons.left),
-    tower('player-core', 'player', 'core', 'core', 800, 575, relayHpMultiplier, 'rocket'),
-    tower('player-right', 'player', 'relay', 'right', getLaneX('right', 550), 550, relayHpMultiplier, playerWeapons.right),
+    tower('enemy-left', 'enemy', 'relay', 'left', pads['enemy-left'].x, pads['enemy-left'].y, relayHpMultiplier, enemyWeapons.left),
+    tower('enemy-core', 'enemy', 'core', 'core', pads['enemy-core'].x, pads['enemy-core'].y, relayHpMultiplier, 'rocket'),
+    tower('enemy-right', 'enemy', 'relay', 'right', pads['enemy-right'].x, pads['enemy-right'].y, relayHpMultiplier, enemyWeapons.right),
+    tower('player-left', 'player', 'relay', 'left', pads['player-left'].x, pads['player-left'].y, relayHpMultiplier, playerWeapons.left),
+    tower('player-core', 'player', 'core', 'core', pads['player-core'].x, pads['player-core'].y, relayHpMultiplier, 'rocket'),
+    tower('player-right', 'player', 'relay', 'right', pads['player-right'].x, pads['player-right'].y, relayHpMultiplier, playerWeapons.right),
   ];
 }
 

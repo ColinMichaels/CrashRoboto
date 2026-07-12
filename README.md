@@ -37,6 +37,9 @@ GitHub Pages must serve the built output, not the repository root. If Pages serv
 - Four shuffled chips are available at a time; playing one cycles the next chip into your hand.
 - Click or tap a command card, then click or tap the highlighted deployment zone.
 - Drag a command card onto your perspective-matched side of the arena; destroying an enemy Relay also unlocks deployment on that Relay's side of enemy territory.
+- Placement previews report the selected lane, attack or ability range, enemy tower coverage, insufficient Charge, locked territory, and physical obstructions before a card is dropped.
+- Use the lobby's Balanced, Rush, Siege, and Control presets or follow the live deck advisor when a loadout lacks openers, area control, support, Installations, or structure pressure.
+- Choose **TRAINING** in the lobby for an action-driven tutorial covering Firmware, launch, card selection, deployment, and Relay breaches.
 - Use a robot card's **LAB** control to inspect its abilities, range, output, and speed.
 - Robot Lab firmware buttons spend match Charge on Output, Range, or Speed upgrades for that robot type.
 - Programs can be targeted anywhere on the active battlefield; robots and Installations begin on your side and can later use only enemy lanes whose Relay has been destroyed.
@@ -56,13 +59,17 @@ The selected pilot, mode, last valid eight-chip loadout, and lobby Firmware allo
 ## Rules
 
 - Each network starts with two Relay towers and one central Core.
-- The active battlefield is longer than it is wide, with each network's towers anchored along the back edge of its board side.
+- The active battlefield is longer than it is wide, with each network's towers anchored to the mounting pads painted along the back edge of its board side.
+- The battle canvas uses 80% of the frame height, with compact rear structures, health bars below the enemy line, and smaller command cards so the board remains readable beneath the HUD.
+- Tower pads reserve only their visible footprint. The home deployment zone extends behind the rear line, allowing delayed flanking routes around or behind friendly towers.
+- Relays and Cores defend only their own side of the bridge; they cannot target or splash robots that have not completed the crossing.
+- Each Core begins dormant and activates its weapon only after one of its own Relays is destroyed.
 - Relay weapon packages trade damage, firing cycle, range, and splash coverage; heavier rocket attacks fire substantially slower.
 - Breaking a Relay scores one Data Point, exposes that lane's route to the Core, and unlocks card deployment in that lane's enemy-side territory.
 - Battle Score rewards destroying robots (50), Installations (75), Relays (500), and the enemy Core (1,500), plus a 1,000-point victory bonus.
 - Destroying the enemy Core wins immediately.
 - If a protocol's timer expires, Data Points decide the winner; remaining tower integrity breaks a tie.
-- Charge regenerates automatically and doubles after the selected protocol reaches its Charge Surge threshold.
+- Matches move through a 15-second Opening Window with 25% faster Charge, a Relay War midgame, and a Core Surge endgame with doubled Charge regeneration.
 
 ## Robot-tech card systems
 
@@ -74,8 +81,8 @@ The selected pilot, mode, last valid eight-chip loadout, and lobby Firmware allo
 - **Robot Lab upgrades** have two tiers per stat and apply immediately to deployed and future robots. Lobby Firmware establishes each match's free baseline; Charge-funded battle upgrades reset to that baseline on restart.
 - Player XP persists between matches. Every match grants participation XP, result XP, and 10% of the player's Battle Score; every two player levels add one lobby Firmware point, from six at Level 1 to a maximum of twelve.
 - **Tower Bay packages** persist with the lobby loadout. Twin Guns focus one target, Siege Rockets deliver slow heavy splash, and Flame Jets rapidly control clusters at short range, each with a distinct tower skin.
-- Deployed robots use arena-specific elevated three-quarter sprites with separate away/toward poses, two-frame locomotion cycles, projection-aware foreshortening, and grounded shadows; card and lobby portraits remain unchanged.
-- Robot and tower attacks launch visible bullets or rockets; impacts and destroyed combatants use perspective-scaled explosions.
+- Deployed robots use arena-specific elevated three-quarter sprites with separate away/toward poses, smoothed four-step locomotion cycles with dedicated transition frames, projection-aware foreshortening, and grounded shadows; card and lobby portraits remain unchanged.
+- Robot and tower attacks launch visible bullets or rockets; target locks, damage/healing numbers, status rings, impacts, and destroyed combatants make each exchange readable at arena scale.
 
 ## Verification
 

@@ -24,7 +24,7 @@ Loadout persistence stores the selected pilot and protocol independently from th
 
 ## Presentation assets
 
-Runtime assets live under `public/assets/game/`. Card portraits use the original robot/system sheets. Arena units use the separate six-column locomotion atlas so battle poses, direction, gait frames, projection scale, and shadows can change without altering lobby art.
+Runtime assets live under `public/assets/game/`. Card portraits use the original robot/system sheets. Arena units use the separate six-column, three-frame-per-direction locomotion atlas so battle poses, direction, gait frames, projection scale, and shadows can change without altering lobby art.
 
 The generated concept studies in `docs/concepts/` are design references only. Keeping them outside `public/` prevents Vite from copying unused multi-megabyte images into every build.
 

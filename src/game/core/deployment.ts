@@ -34,16 +34,16 @@ const HOME_DEPLOYMENT_ZONES: Record<Team, DeploymentZone> = {
     points: [
       { x: 550, y: 360 },
       { x: 1_050, y: 360 },
-      { x: 1_070, y: 630 },
-      { x: 530, y: 630 },
+      { x: 1_074, y: 650 },
+      { x: 526, y: 650 },
     ],
   },
   enemy: {
     kind: 'home',
     lane: 'both',
     points: [
-      { x: 600, y: 70 },
-      { x: 1_000, y: 70 },
+      { x: 590, y: 55 },
+      { x: 1_010, y: 55 },
       { x: 1_050, y: 245 },
       { x: 550, y: 245 },
     ],
@@ -56,8 +56,8 @@ const BREACH_DEPLOYMENT_ZONES: Record<Team, Record<Lane, DeploymentZone>> = {
       kind: 'breach',
       lane: 'left',
       points: [
-        { x: 600, y: 70 },
-        { x: 800, y: 70 },
+        { x: 590, y: 55 },
+        { x: 800, y: 55 },
         { x: 800, y: 245 },
         { x: 550, y: 245 },
       ],
@@ -66,8 +66,8 @@ const BREACH_DEPLOYMENT_ZONES: Record<Team, Record<Lane, DeploymentZone>> = {
       kind: 'breach',
       lane: 'right',
       points: [
-        { x: 800, y: 70 },
-        { x: 1_000, y: 70 },
+        { x: 800, y: 55 },
+        { x: 1_010, y: 55 },
         { x: 1_050, y: 245 },
         { x: 800, y: 245 },
       ],
@@ -80,8 +80,8 @@ const BREACH_DEPLOYMENT_ZONES: Record<Team, Record<Lane, DeploymentZone>> = {
       points: [
         { x: 550, y: 360 },
         { x: 800, y: 360 },
-        { x: 800, y: 630 },
-        { x: 530, y: 630 },
+        { x: 800, y: 650 },
+        { x: 526, y: 650 },
       ],
     },
     right: {
@@ -90,8 +90,8 @@ const BREACH_DEPLOYMENT_ZONES: Record<Team, Record<Lane, DeploymentZone>> = {
       points: [
         { x: 800, y: 360 },
         { x: 1_050, y: 360 },
-        { x: 1_070, y: 630 },
-        { x: 800, y: 630 },
+        { x: 1_074, y: 650 },
+        { x: 800, y: 650 },
       ],
     },
   },

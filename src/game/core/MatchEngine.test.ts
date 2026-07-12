@@ -4,6 +4,7 @@ import {
   DEFAULT_ENEMY_DECK,
   DEFAULT_PLAYER_DECK,
   DECK_SIZE,
+  ENEMY_BRIDGE_EDGE_Y,
   FIXED_STEP_MS,
   GAME_MODES,
   HAND_SIZE,
@@ -12,10 +13,12 @@ import {
   OVERDRIVE_COOLDOWN_MS,
   OVERDRIVE_COST,
   OVERDRIVE_DURATION_MS,
+  PLAYER_BRIDGE_EDGE_Y,
   PROGRAMS,
   PROGRAM_TOWER_DAMAGE_MULTIPLIER,
   ROBOTS,
   TOWER_WEAPONS,
+  TOWER_PAD_POSITIONS,
   UPGRADE_COSTS,
   UPGRADE_MULTIPLIERS,
   createDefaultMatchConfig,
@@ -46,6 +49,7 @@ const advance = (engine: MatchEngine, ms: number) => {
 
 type MatchEngineHarness = {
   spawnUnit: (team: Team, kind: RobotKind, x: number, y: number) => UnitState;
+  units: UnitState[];
   zones: ProgramZoneState[];
 };
 
@@ -66,12 +70,15 @@ describe('MatchEngine', () => {
     expect(getPerspectiveScale(100)).toBeLessThan(getPerspectiveScale(600));
   });
 
-  it('anchors both Core groups behind their Relay back lines', () => {
+  it('anchors every structure to its painted board mounting pad', () => {
     const towers = createTowers();
     const enemyCore = towers.find((tower) => tower.id === 'enemy-core')!;
     const enemyRelays = towers.filter((tower) => tower.team === 'enemy' && tower.kind === 'relay');
     const playerCore = towers.find((tower) => tower.id === 'player-core')!;
     const playerRelays = towers.filter((tower) => tower.team === 'player' && tower.kind === 'relay');
+    for (const tower of towers) {
+      expect(tower).toMatchObject(TOWER_PAD_POSITIONS[tower.id as keyof typeof TOWER_PAD_POSITIONS]);
+    }
     expect(enemyRelays.every((tower) => enemyCore.y < tower.y)).toBe(true);
     expect(playerRelays.every((tower) => playerCore.y > tower.y)).toBe(true);
   });
@@ -116,8 +123,8 @@ describe('MatchEngine', () => {
         playerTowerWeapons: { left: 'rocket', right: 'flame' },
       },
     })).toBe(true);
-    const primary = harness(engine).spawnUnit('enemy', 'brute', 605, 390);
-    const secondary = harness(engine).spawnUnit('enemy', 'brute', 560, 390);
+    const primary = harness(engine).spawnUnit('enemy', 'brute', 520, 380);
+    const secondary = harness(engine).spawnUnit('enemy', 'brute', 475, 380);
 
     engine.step(FIXED_STEP_MS);
 
@@ -135,6 +142,89 @@ describe('MatchEngine', () => {
         ROBOTS.brute.maxHp - TOWER_WEAPONS.rocket.damage * TOWER_WEAPONS.rocket.splashMultiplier,
         5,
       );
+  });
+
+  it('keeps a Core dormant until one of its own Relays is destroyed', () => {
+    const events: GameEvent[] = [];
+    const engine = new MatchEngine((event) => events.push(event));
+    engine.dispatch({ type: 'start' });
+    harness(engine).spawnUnit('enemy', 'brute', 800, 500);
+    const coreShots = () => events.filter(
+      (event) => event.type === 'projectileFired' && event.source.id === 'player-core',
+    );
+
+    engine.step(FIXED_STEP_MS);
+    expect(coreShots()).toHaveLength(0);
+
+    engine.debugDamageTower('enemy-left', 2_000);
+    engine.step(FIXED_STEP_MS);
+    expect(coreShots()).toHaveLength(0);
+
+    engine.debugDamageTower('player-left', 2_000);
+    engine.step(FIXED_STEP_MS);
+    expect(coreShots()).toHaveLength(1);
+  });
+
+  it('waits for a robot to complete the bridge crossing before defensive towers fire', () => {
+    const enemyEvents: GameEvent[] = [];
+    const enemyDefense = new MatchEngine((event) => enemyEvents.push(event));
+    enemyDefense.dispatch({ type: 'start' });
+    const playerRobot = harness(enemyDefense).spawnUnit(
+      'player',
+      'brute',
+      getLaneX('left', ENEMY_BRIDGE_EDGE_Y + 1),
+      ENEMY_BRIDGE_EDGE_Y + 1,
+    );
+
+    enemyDefense.step(FIXED_STEP_MS);
+    expect(enemyEvents.some(
+      (event) => event.type === 'projectileFired' && event.source.id === 'enemy-left',
+    )).toBe(false);
+    expect(playerRobot.y).toBeLessThanOrEqual(ENEMY_BRIDGE_EDGE_Y);
+
+    enemyDefense.step(FIXED_STEP_MS);
+    expect(enemyEvents.some(
+      (event) => event.type === 'projectileFired' && event.source.id === 'enemy-left',
+    )).toBe(true);
+
+    const playerEvents: GameEvent[] = [];
+    const playerDefense = new MatchEngine((event) => playerEvents.push(event));
+    playerDefense.dispatch({ type: 'start' });
+    const enemyRobot = harness(playerDefense).spawnUnit(
+      'enemy',
+      'brute',
+      getLaneX('left', PLAYER_BRIDGE_EDGE_Y - 1),
+      PLAYER_BRIDGE_EDGE_Y - 1,
+    );
+
+    playerDefense.step(FIXED_STEP_MS);
+    expect(playerEvents.some(
+      (event) => event.type === 'projectileFired' && event.source.id === 'player-left',
+    )).toBe(false);
+    expect(enemyRobot.y).toBeGreaterThanOrEqual(PLAYER_BRIDGE_EDGE_Y);
+
+    playerDefense.step(FIXED_STEP_MS);
+    expect(playerEvents.some(
+      (event) => event.type === 'projectileFired' && event.source.id === 'player-left',
+    )).toBe(true);
+  });
+
+  it('does not apply tower splash damage across the bridge boundary', () => {
+    const engine = new MatchEngine();
+    engine.dispatch({
+      type: 'start',
+      config: {
+        ...createDefaultMatchConfig(),
+        playerTowerWeapons: { left: 'rocket', right: 'flame' },
+      },
+    });
+    const crossed = harness(engine).spawnUnit('enemy', 'brute', 600, PLAYER_BRIDGE_EDGE_Y);
+    const protectedAcrossBridge = harness(engine).spawnUnit('enemy', 'brute', 600, PLAYER_BRIDGE_EDGE_Y - 1);
+
+    engine.step(FIXED_STEP_MS);
+
+    expect(crossed.hp).toBe(ROBOTS.brute.maxHp - TOWER_WEAPONS.rocket.damage);
+    expect(protectedAcrossBridge.hp).toBe(ROBOTS.brute.maxHp);
   });
 
   it('validates exact eight-card unique decks and complete match configs at runtime', () => {
@@ -321,7 +411,7 @@ describe('MatchEngine', () => {
     expect(snapshot).toMatchObject({ modeId: 'turbo-grid', remainingMs: 90_000, charge: { player: 7 } });
     expect(snapshot.towers.find((tower) => tower.kind === 'relay')?.maxHp).toBe(1_600);
     advance(turbo, 1_000);
-    expect(turbo.getSnapshot().charge.player).toBeCloseTo(7.7, 5);
+    expect(turbo.getSnapshot().charge.player).toBeCloseTo(7.875, 5);
     advance(turbo, 44_000);
     snapshot = turbo.getSnapshot();
     expect(snapshot.remainingMs).toBe(45_000);
@@ -424,7 +514,7 @@ describe('MatchEngine', () => {
     expect(snapshot.next.player).toBe('emp');
 
     advance(engine, 2_500);
-    expect(engine.getSnapshot().charge.player).toBeCloseTo(4, 5);
+    expect(engine.getSnapshot().charge.player).toBeCloseTo(4.25, 5);
   });
 
   it('uses the visible perspective polygon as the authoritative home deployment area', () => {
@@ -434,6 +524,14 @@ describe('MatchEngine', () => {
     expect(engine.dispatch({ type: 'playCard', team: 'player', cardId: 'zip', x: 549, y: 360 })).toBe(false);
     expect(engine.getSnapshot().charge.player).toBe(5);
     expect(engine.dispatch({ type: 'playCard', team: 'player', cardId: 'zip', x: 550, y: 360 })).toBe(true);
+  });
+
+  it('allows a strategic rear deployment behind the player Core', () => {
+    const engine = new MatchEngine();
+    engine.dispatch({ type: 'start' });
+
+    expect(engine.dispatch({ type: 'playCard', team: 'player', cardId: 'zip', x: 800, y: 625 })).toBe(true);
+    expect(engine.getSnapshot().units.at(-1)).toMatchObject({ team: 'player', x: 800, y: 625 });
   });
 
   it('extends deployment into only the enemy lane whose Relay was destroyed', () => {
@@ -644,9 +742,9 @@ describe('MatchEngine', () => {
     advance(engine, 250);
     expect(engine.dispatch({ type: 'playCard', team: 'player', cardId: 'emp', x: 800, y: 55 })).toBe(true);
     advance(engine, 9_750);
-    expect(engine.getSnapshot().charge.player).toBeCloseTo(INSTALLATIONS.foundry.cost, 5);
+    expect(engine.getSnapshot().charge.player).toBeCloseTo(6, 5);
     expect(
-      engine.dispatch({ type: 'playCard', team: 'player', cardId: 'foundry', x: 920, y: 420 }),
+      engine.dispatch({ type: 'playCard', team: 'player', cardId: 'foundry', x: 1_040, y: 420 }),
     ).toBe(true);
 
     advance(engine, INSTALLATIONS.foundry.activationDelayMs - 50);
@@ -670,6 +768,9 @@ describe('MatchEngine', () => {
     expect(
       engine.dispatch({ type: 'playCard', team: 'player', cardId: 'vector', x: 920, y: 420 }),
     ).toBe(true);
+    const commander = harness(engine).units.find((unit) => unit.team === 'player' && unit.kind === 'vector')!;
+    commander.hp = 10_000;
+    commander.maxHp = 10_000;
     advance(engine, 250);
     expect(
       engine.dispatch({ type: 'playCard', team: 'player', cardId: 'vector', x: 900, y: 400 }),
@@ -680,14 +781,14 @@ describe('MatchEngine', () => {
     ).toHaveLength(1);
 
     expect(engine.getSnapshot().charge.player).toBeCloseTo(
-      OVERDRIVE_COST + GAME_MODES['turbo-grid'].chargeRegenPerSecond * 0.25,
+      OVERDRIVE_COST + GAME_MODES['turbo-grid'].chargeRegenPerSecond * 1.25 * 0.25,
       5,
     );
     expect(engine.getSnapshot().commander.player.available).toBe(true);
     expect(engine.dispatch({ type: 'activateOverdrive', team: 'player' })).toBe(true);
     const activated = engine.getSnapshot();
     expect(activated.charge.player).toBeCloseTo(
-      GAME_MODES['turbo-grid'].chargeRegenPerSecond * 0.25,
+      GAME_MODES['turbo-grid'].chargeRegenPerSecond * 1.25 * 0.25,
       5,
     );
     expect(activated.commander.player).toMatchObject({
@@ -845,7 +946,7 @@ describe('MatchEngine', () => {
 
     // This location is in both weapons' reach but outside the rear Core's range,
     // keeping the event-order assertion focused on one Relay and one robot.
-    expect(harness(engine).spawnUnit('player', 'vector', 550, 270))
+    expect(harness(engine).spawnUnit('player', 'vector', 570, 160))
       .toBeTruthy();
     advance(engine, 300);
 

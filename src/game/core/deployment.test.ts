@@ -14,11 +14,11 @@ describe('deployment geometry', () => {
 
     expect(isDeploymentPoint('player', 550, 360, towers)).toBe(true);
     expect(isDeploymentPoint('player', 549, 360, towers)).toBe(false);
-    expect(isDeploymentPoint('player', 530, 630, towers)).toBe(true);
-    expect(isDeploymentPoint('player', 529, 630, towers)).toBe(false);
+    expect(isDeploymentPoint('player', 526, 650, towers)).toBe(true);
+    expect(isDeploymentPoint('player', 525, 650, towers)).toBe(false);
 
-    expect(isDeploymentPoint('enemy', 600, 70, towers)).toBe(true);
-    expect(isDeploymentPoint('enemy', 599, 70, towers)).toBe(false);
+    expect(isDeploymentPoint('enemy', 590, 55, towers)).toBe(true);
+    expect(isDeploymentPoint('enemy', 589, 55, towers)).toBe(false);
     expect(isDeploymentPoint('enemy', 550, 245, towers)).toBe(true);
     expect(isDeploymentPoint('enemy', 549, 245, towers)).toBe(false);
   });
