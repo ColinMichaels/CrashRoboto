@@ -58,6 +58,7 @@ import {
   teamColor,
   textureKey,
 } from './arenaPresentation';
+import { createArenaViewport, type ArenaViewport } from './arenaViewport';
 
 interface NanoZoneVisual {
   field: GameObjects.Graphics;
@@ -104,6 +105,8 @@ export class BattleScene extends Scene {
   private previousRemainingMs = 0;
   private previousSnapshotRevision = -1;
   private unsubscribeEvents?: () => void;
+  private arenaViewport = createArenaViewport(BOARD_WIDTH, BOARD_HEIGHT);
+  private presentationReady = false;
 
   constructor(private readonly bridge: GameBridge) {
     super('battle');
@@ -159,6 +162,9 @@ export class BattleScene extends Scene {
       .setDepth(9)
       .setVisible(false);
 
+    this.presentationReady = true;
+    this.applyArenaViewport();
+
     this.input.on('pointermove', (pointer: Input.Pointer) => {
       this.latestPointer = { x: pointer.worldX, y: pointer.worldY };
       this.updateGhost();
@@ -182,6 +188,7 @@ export class BattleScene extends Scene {
 
     this.unsubscribeEvents = this.bridge.subscribeToEvents((event) => this.onGameEvent(event));
     const cleanup = () => {
+      this.presentationReady = false;
       this.unsubscribeEvents?.();
       this.unsubscribeEvents = undefined;
       this.clearCombatVfx();
@@ -189,6 +196,31 @@ export class BattleScene extends Scene {
     this.events.once('shutdown', cleanup);
     this.events.once('destroy', cleanup);
     this.syncPresentation();
+  }
+
+  resizeArenaViewport(width: number, height: number): ArenaViewport {
+    this.arenaViewport = createArenaViewport(width, height);
+    if (this.presentationReady) {
+      this.applyArenaViewport();
+      this.latestPointer = {
+        x: this.arenaViewport.worldX + this.arenaViewport.worldWidth / 2,
+        y: this.arenaViewport.worldY + this.arenaViewport.worldHeight / 2,
+      };
+      this.updateGhost();
+    }
+    return this.arenaViewport;
+  }
+
+  private applyArenaViewport(): void {
+    const viewport = this.arenaViewport;
+    this.cameras.main
+      .setViewport(0, 0, viewport.screenWidth, viewport.screenHeight)
+      .setBounds(0, 0, BOARD_WIDTH, BOARD_HEIGHT)
+      .setZoom(viewport.zoomX, viewport.zoomY)
+      .centerOn(
+        viewport.worldX + viewport.worldWidth / 2,
+        viewport.worldY + viewport.worldHeight / 2,
+      );
   }
 
   update(_time: number, delta: number): void {

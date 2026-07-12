@@ -25,8 +25,6 @@ import { Lobby } from '../features/lobby/Lobby';
 import { useMatchRewards } from '../features/progression/useMatchRewards';
 import { TutorialCoach, type TutorialStep } from '../features/tutorial/TutorialCoach';
 import {
-  BOARD_HEIGHT,
-  BOARD_WIDTH,
   CARDS,
   cloneRobotUpgrades,
   DEFAULT_PLAYER_DECK,
@@ -43,6 +41,7 @@ import {
 } from '../game/core/progression';
 import { DECK_PRESETS, type DeckPresetId } from '../game/core/deckGuidance';
 import { readStorageItem, writeStorageItem } from './browserStorage';
+import type { GameCanvasHandle } from './GameCanvas';
 import { readLobbyLoadout, resetLobbyLoadout, saveLobbyLoadout } from './loadoutStorage';
 
 const loadGameCanvas = () => import('./GameCanvas');
@@ -85,7 +84,7 @@ export function App() {
   const sound = useMemo(() => new SoundEngine({ volume: readSfxVolume() }), []);
   const music = useMemo(() => new MusicEngine(BUNDLED_MUSIC_PLAYLIST, { volume: readMusicVolume() }), []);
   const snapshot = useGameSnapshot(bridge);
-  const frameRef = useRef<HTMLDivElement>(null);
+  const gameCanvasRef = useRef<GameCanvasHandle>(null);
   const dragOriginRef = useRef<{ cardId: CardId; x: number; y: number } | null>(null);
   const labTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [sfxMuted, setSfxMuted] = useState(() => readMutePreference(SFX_MUTE_STORAGE_KEY));
@@ -314,16 +313,14 @@ export function App() {
   }, []);
 
   const playDraggedCard = useCallback((cardId: CardId, clientX: number, clientY: number) => {
-    const bounds = frameRef.current
-      ?.querySelector<HTMLElement>('.game-canvas')
-      ?.getBoundingClientRect();
-    if (!bounds) return;
+    const point = gameCanvasRef.current?.clientToWorld(clientX, clientY);
+    if (!point) return;
     dispatch({
       type: 'playCard',
       team: 'player',
       cardId,
-      x: ((clientX - bounds.left) / bounds.width) * BOARD_WIDTH,
-      y: ((clientY - bounds.top) / bounds.height) * BOARD_HEIGHT,
+      x: point.x,
+      y: point.y,
     });
   }, [dispatch]);
 
@@ -436,7 +433,6 @@ export function App() {
     <main className="app-shell">
       <div className="ambient-grid" aria-hidden="true" />
       <div
-        ref={frameRef}
         className={`game-frame${snapshot.phase === 'menu' ? ' is-lobby' : ' is-battle'}`}
         onContextMenu={(event) => event.preventDefault()}
       >
@@ -471,7 +467,11 @@ export function App() {
         ) : (
           <>
             <Suspense fallback={<div className="arena-loading" role="status">INITIALIZING GRID…</div>}>
-              <GameCanvas bridge={bridge} />
+              <GameCanvas
+                ref={gameCanvasRef}
+                bridge={bridge}
+                onViewportChange={() => { dragOriginRef.current = null; }}
+              />
             </Suspense>
             <Hud
               snapshot={snapshot}
@@ -525,10 +525,10 @@ export function App() {
         )}
       </div>
 
-      <div className="rotate-gate" role="dialog" aria-label="Rotate device">
+      <div className="rotate-gate" role="dialog" aria-label="Rotate to portrait">
         <div className="rotate-device" aria-hidden="true"><i /></div>
-        <strong>ROTATE TO BATTLE</strong>
-        <span>Crash Roboto is tuned for landscape command.</span>
+        <strong>ROTATE TO PORTRAIT</strong>
+        <span>Mobile command is optimized for an upright battlefield.</span>
       </div>
     </main>
   );

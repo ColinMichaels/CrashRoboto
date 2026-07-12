@@ -136,7 +136,7 @@ export function CardHand({ snapshot, onSelect, onBeginDrag, onCancelDrag, onInsp
                   onClick={(event) => onInspectRobot(cardId as RobotCardId, event.currentTarget)}
                   aria-label={`Open Robot Lab for ${card.name}`}
                 >
-                  LAB
+                  <span className="card-lab-label">LAB</span>
                 </button>
               )}
             </article>
@@ -149,6 +149,7 @@ export function CardHand({ snapshot, onSelect, onBeginDrag, onCancelDrag, onInsp
         aria-label={`Next card: ${nextCard.name}, ${CATEGORY_LABELS[nextCard.category].toLowerCase()}, ${TECH_CLASS_LABELS[nextCard.techClass].toLowerCase()} tech.${nextMasteryCopy}${nextUpgradeCopy}`}
       >
         <span className="next-label">NEXT</span>
+        <span className="next-cost" aria-hidden="true">{nextCard.cost}</span>
         <UpgradeBadge info={nextUpgradeBadge} className="next-card-upgrade-badge" />
         {nextMasteryLevel > 1 && <span className="next-card-mastery-badge" aria-hidden="true">MK {nextMasteryLevel}</span>}
         <span className="next-tech">{TECH_CLASS_LABELS[nextCard.techClass]}</span>

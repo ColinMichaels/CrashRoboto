@@ -435,6 +435,60 @@
   }
 }
 
+@media (orientation: portrait) and (max-width: 800px) {
+  .game-frame.is-lobby .music-player,
+  .game-frame.is-battle .music-player {
+    right: auto;
+    left: calc(max(8px, env(safe-area-inset-left, 0px)) + 52px);
+    width: 44px;
+    height: 44px;
+    grid-template-columns: 1fr;
+  }
+
+  .game-frame.is-lobby .music-player {
+    top: calc(max(8px, env(safe-area-inset-top, 0px)) + 66px);
+  }
+
+  .game-frame.is-battle .music-player {
+    top: auto;
+    bottom: calc(max(8px, env(safe-area-inset-bottom, 0px)) + clamp(118px, 21dvh, 144px) + 8px);
+  }
+
+  .game-frame.is-lobby .music-player-copy,
+  .game-frame.is-lobby .music-player-control,
+  .game-frame.is-battle .music-player-copy,
+  .game-frame.is-battle .music-player-control {
+    display: none;
+  }
+
+  .music-player-artwork {
+    width: 44px;
+    height: 44px;
+    border-right: 0;
+  }
+
+  .game-frame.is-lobby .music-player-panel,
+  .game-frame.is-battle .music-player-panel {
+    position: fixed;
+    top: auto;
+    right: max(8px, env(safe-area-inset-right, 0px));
+    bottom: calc(max(8px, env(safe-area-inset-bottom, 0px)) + clamp(118px, 21dvh, 144px) + 58px);
+    left: max(8px, env(safe-area-inset-left, 0px));
+    width: auto;
+    max-height: min(62dvh, 520px);
+    overflow-y: auto;
+  }
+
+  .game-frame.is-lobby .music-player-panel {
+    bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  }
+
+  .music-player-actions label,
+  .music-player-actions button {
+    min-height: 44px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .music-player-artwork > i.is-active {
     animation: none;
