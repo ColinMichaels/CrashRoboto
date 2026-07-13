@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { POWER_DRAIN_DURATION_MS, POWER_DRAIN_WARNING_MS } from '../game/core/MatchEngine';
 import type { GameEvent } from '../game/core/types';
+import { RECORDED_PRELOAD_PATHS } from './recordedSoundDesign';
 import { SoundEngine } from './SoundEngine';
 
 class FakeAudioParam {
@@ -145,13 +146,13 @@ function renderEvent(event: GameEvent): FakeAudioContext {
 }
 
 describe('SoundEngine', () => {
-  it('starts at a safe 50% level relative to the tuned SFX ceiling', () => {
+  it('starts at the tuned 60% level relative to the SFX ceiling', () => {
     const context = new FakeAudioContext();
     const engine = new SoundEngine({ createContext: () => context as unknown as AudioContext });
 
-    expect(engine.getVolume()).toBe(0.5);
+    expect(engine.getVolume()).toBe(0.6);
     engine.blip();
-    expect(context.gains[0]?.gain.value).toBeCloseTo(0.58 * 0.5);
+    expect(context.gains[0]?.gain.value).toBeCloseTo(0.58 * 0.6);
 
     engine.dispose();
   });
@@ -255,6 +256,27 @@ describe('SoundEngine', () => {
     engine.playCardSelected('gravity');
     engine.blip();
     expect(context.oscillatorCount + context.noiseCount).toBe(activeNodeCount);
+
+    engine.dispose();
+  });
+
+  it('preloads recorded assets once and prefers them over procedural synthesis', async () => {
+    const context = new FakeAudioContext();
+    let loadCount = 0;
+    const engine = new SoundEngine({
+      createContext: () => context as unknown as AudioContext,
+      loadSample: async () => {
+        loadCount += 1;
+        return new FakeAudioBuffer(20) as unknown as AudioBuffer;
+      },
+    });
+
+    await Promise.all([engine.preload(), engine.preload()]);
+    expect(loadCount).toBe(RECORDED_PRELOAD_PATHS.length);
+
+    engine.playCardSelected('zip');
+    expect(context.oscillatorCount).toBe(0);
+    expect(context.noiseCount).toBe(1);
 
     engine.dispose();
   });

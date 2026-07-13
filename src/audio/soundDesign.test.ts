@@ -53,6 +53,9 @@ describe('sound design', () => {
       team: 'player',
       attackId: 42,
       impactDelay: getProjectileImpactDelaySeconds(rocket),
+      sourceId: 'source',
+      sourceType: 'unit',
+      targetType: 'tower',
     }]);
   });
 
@@ -65,7 +68,7 @@ describe('sound design', () => {
     expect(getSoundCuesForEvent({
       type: 'matchEnded',
       result: { winner: 'player', reason: 'core', headline: 'Won', detail: 'Core destroyed.' },
-    })).toEqual([{ kind: 'matchEnd', winner: 'player' }]);
+    })).toEqual([{ kind: 'matchEnd', winner: 'player', final: true }]);
   });
 
   it('routes Power Drain startup to its dedicated full-resolution cue', () => {
@@ -106,7 +109,7 @@ describe('sound design', () => {
       result: roundResult,
       wins: { player: 1, enemy: 0 },
       matchComplete: false,
-    })).toEqual([{ kind: 'matchEnd', winner: 'player' }]);
+    })).toEqual([{ kind: 'matchEnd', winner: 'player', final: false }]);
     expect(getSoundCuesForEvent({
       type: 'roundEnded',
       roundNumber: 2,
@@ -122,6 +125,6 @@ describe('sound design', () => {
         headline: 'SERIES SECURED',
         detail: 'Final series score 2–0.',
       },
-    })).toEqual([{ kind: 'matchEnd', winner: 'player' }]);
+    })).toEqual([{ kind: 'matchEnd', winner: 'player', final: true }]);
   });
 });
