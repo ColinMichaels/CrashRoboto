@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_ENEMY_DECK, DEFAULT_PLAYER_DECK } from '../core/content';
 import type { CardId, MatchSnapshot } from '../core/types';
-import { getArenaAssetManifest } from './arenaAssets';
+import {
+  getArenaAssetManifest,
+  getArenaBoardThemeForLevel,
+} from './arenaAssets';
 
 const createDecks = (player: CardId[]): MatchSnapshot['decks'] => ({
   player,
@@ -13,6 +16,30 @@ const getKeys = (decks: MatchSnapshot['decks']): string[] => (
 );
 
 describe('arena asset manifest', () => {
+  it('assigns arena themes to non-overlapping player-level ranges', () => {
+    expect(getArenaBoardThemeForLevel(1)).toBe('foundry');
+    expect(getArenaBoardThemeForLevel(5)).toBe('foundry');
+    expect(getArenaBoardThemeForLevel(6)).toBe('sewer');
+    expect(getArenaBoardThemeForLevel(10)).toBe('sewer');
+    expect(getArenaBoardThemeForLevel(11)).toBe('volcanic');
+    expect(getArenaBoardThemeForLevel(19)).toBe('volcanic');
+    expect(getArenaBoardThemeForLevel(20)).toBe('orbital');
+    expect(getArenaBoardThemeForLevel(39)).toBe('orbital');
+    expect(getArenaBoardThemeForLevel(40)).toBe('alien');
+  });
+
+  it('loads only the board assigned to the current player level', () => {
+    const decks = createDecks([...DEFAULT_PLAYER_DECK]);
+    const boardPath = (level: number) => getArenaAssetManifest(decks, level)
+      .find((asset) => asset.key === 'arena-board')?.path;
+
+    expect(boardPath(1)).toBe('assets/game/arena-board-long.webp');
+    expect(boardPath(6)).toBe('assets/game/arena-board-sewer.webp');
+    expect(boardPath(11)).toBe('assets/game/arena-board-volcanic.webp');
+    expect(boardPath(20)).toBe('assets/game/arena-board-orbital.webp');
+    expect(boardPath(40)).toBe('assets/game/arena-board-alien.webp');
+  });
+
   it('keeps portrait-only and inactive Vault textures out of a standard match', () => {
     const keys = getKeys(createDecks([...DEFAULT_PLAYER_DECK]));
 

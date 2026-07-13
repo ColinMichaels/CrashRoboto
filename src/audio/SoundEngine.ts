@@ -7,6 +7,14 @@ import {
   type CardVoiceProfile,
   type SoundCue,
 } from './soundDesign';
+import {
+  getInterfaceSoundPlan,
+  getRecordedFamily,
+  getRecordedSoundPlans,
+  RECORDED_PRELOAD_PATHS,
+  type InterfaceSoundId,
+  type RecordedSoundPlan,
+} from './recordedSoundDesign';
 
 type SoundBus = 'ui' | 'voice' | 'combat' | 'critical';
 type SoundPriority = 0 | 1 | 2 | 3;
@@ -59,6 +67,7 @@ interface NoiseOptions {
 
 export interface SoundEngineOptions {
   createContext?: () => AudioContext | null;
+  loadSample?: (path: string, context: AudioContext) => Promise<AudioBuffer | null>;
   volume?: number;
 }
 
@@ -97,6 +106,12 @@ function createBrowserAudioContext(): AudioContext | null {
   return AudioCtor ? new AudioCtor() : null;
 }
 
+async function loadBrowserSample(path: string, context: AudioContext): Promise<AudioBuffer | null> {
+  const response = await fetch(`${import.meta.env.BASE_URL}${path}`, { cache: 'force-cache' });
+  if (!response.ok) throw new Error(`Could not load ${path} (${response.status})`);
+  return context.decodeAudioData(await response.arrayBuffer());
+}
+
 function getVoiceSequence(profile: CardVoiceProfile, variant: 'selected' | 'deployed'): number[] {
   const sequence = [...profile.syllables];
   while (sequence.length < 3) sequence.push((sequence[0] ?? 1) * (sequence.length === 1 ? 0.84 : 1.12));
@@ -106,11 +121,16 @@ function getVoiceSequence(profile: CardVoiceProfile, variant: 'selected' | 'depl
 
 export class SoundEngine {
   private readonly createContext: () => AudioContext | null;
+  private readonly loadSample: (path: string, context: AudioContext) => Promise<AudioBuffer | null>;
   private context: AudioContext | null = null;
   private graph: SoundGraph | null = null;
   private noiseBuffer: AudioBuffer | null = null;
   private readonly activeSounds = new Map<number, ActiveSound>();
   private readonly lastCueTimes = new Map<string, number>();
+  private readonly sampleBuffers = new Map<string, AudioBuffer | null>();
+  private readonly sampleLoads = new Map<string, Promise<void>>();
+  private readonly sampleVariations = new Map<string, number>();
+  private preloadPromise: Promise<void> | null = null;
   private volume: number;
   private muted = false;
   private paused = false;
@@ -120,6 +140,7 @@ export class SoundEngine {
 
   constructor(options: SoundEngineOptions = {}) {
     this.createContext = options.createContext ?? createBrowserAudioContext;
+    this.loadSample = options.loadSample ?? loadBrowserSample;
     const initialVolume = options.volume;
     this.volume = typeof initialVolume === 'number' && Number.isFinite(initialVolume)
       ? clamp(initialVolume, 0, 1)
@@ -160,8 +181,14 @@ export class SoundEngine {
     if (!this.muted && !this.disposed) this.playCue(getCardSelectionCue(cardId));
   }
 
+  playInterfaceSound(id: InterfaceSoundId): void {
+    if (this.muted || this.disposed) return;
+    if (!this.playRecordedPlans([getInterfaceSoundPlan(id)])) this.blip();
+  }
+
   blip(): void {
     if (this.muted || this.disposed) return;
+    if (this.playRecordedPlans([getInterfaceSoundPlan('confirm')])) return;
     const sound = this.beginSound('ui-blip', 1, 'ui', 0.025);
     if (!sound) return;
     this.addTone(sound, 430, 0.07, {
@@ -175,6 +202,25 @@ export class SoundEngine {
     if (this.disposed || this.paused) return;
     const context = this.getContext();
     if (context?.state === 'suspended') void context.resume().catch(() => undefined);
+  }
+
+  preload(): Promise<void> {
+    if (this.disposed) return Promise.resolve();
+    if (this.preloadPromise) return this.preloadPromise;
+    const context = this.getContext();
+    if (!context) return Promise.resolve();
+
+    this.preloadPromise = (async () => {
+      const batchSize = 12;
+      for (let offset = 0; offset < RECORDED_PRELOAD_PATHS.length; offset += batchSize) {
+        if (this.disposed) return;
+        const paths = RECORDED_PRELOAD_PATHS.slice(offset, offset + batchSize);
+        await Promise.all(paths.map((path) => this.loadSamplePath(path, context)));
+      }
+    })().finally(() => {
+      if (this.disposed) this.preloadPromise = null;
+    });
+    return this.preloadPromise;
   }
 
   pause(): void {
@@ -197,6 +243,10 @@ export class SoundEngine {
     for (const sound of [...this.activeSounds.values()]) this.forceStopSound(sound);
     this.activeSounds.clear();
     this.lastCueTimes.clear();
+    this.sampleBuffers.clear();
+    this.sampleLoads.clear();
+    this.sampleVariations.clear();
+    this.preloadPromise = null;
     this.noiseBuffer = null;
 
     if (this.graph) {
@@ -212,6 +262,7 @@ export class SoundEngine {
   }
 
   private playCue(cue: SoundCue): void {
+    if (this.playRecordedPlans(getRecordedSoundPlans(cue))) return;
     switch (cue.kind) {
       case 'matchStart':
         this.playMatchStart(cue);
@@ -611,6 +662,84 @@ export class SoundEngine {
         filter: { type: 'lowpass', frequency: 520, endFrequency: 120, q: 0.7 },
       });
     }
+  }
+
+  private playRecordedPlans(plans: readonly RecordedSoundPlan[]): boolean {
+    let foundDecodedSample = false;
+    for (const plan of plans) {
+      const playableLayers = plan.layers.flatMap((layer) => {
+        const family = getRecordedFamily(layer.family);
+        const variation = this.sampleVariations.get(layer.family) ?? 0;
+        this.sampleVariations.set(layer.family, variation + 1);
+        const intendedPath = family.paths[variation % family.paths.length];
+        if (!this.sampleBuffers.has(intendedPath) && this.context) {
+          void this.loadSamplePath(intendedPath, this.context);
+        }
+        for (let offset = 0; offset < family.paths.length; offset += 1) {
+          const path = family.paths[(variation + offset) % family.paths.length];
+          const buffer = this.sampleBuffers.get(path);
+          if (buffer) return [{ layer, family, buffer }];
+        }
+        return [];
+      });
+      if (playableLayers.length === 0) continue;
+      foundDecodedSample = true;
+      const sound = this.beginSound(
+        plan.tag,
+        plan.priority,
+        plan.bus,
+        plan.throttleSeconds ?? 0,
+        plan.category ?? 'other',
+      );
+      if (!sound) continue;
+      for (const { layer, family, buffer } of playableLayers) {
+        this.addSample(
+          sound,
+          buffer,
+          layer.delay ?? 0,
+          family.gain * (layer.gain ?? 1),
+          layer.playbackRate ?? 1,
+        );
+      }
+    }
+    return foundDecodedSample;
+  }
+
+  private loadSamplePath(path: string, context: AudioContext): Promise<void> {
+    if (this.sampleBuffers.has(path)) return Promise.resolve();
+    const existing = this.sampleLoads.get(path);
+    if (existing) return existing;
+    const load = this.loadSample(path, context)
+      .then((buffer) => {
+        if (!this.disposed) this.sampleBuffers.set(path, buffer);
+      })
+      .catch(() => {
+        if (!this.disposed) this.sampleBuffers.set(path, null);
+      })
+      .finally(() => {
+        this.sampleLoads.delete(path);
+      });
+    this.sampleLoads.set(path, load);
+    return load;
+  }
+
+  private addSample(
+    sound: ActiveSound,
+    buffer: AudioBuffer,
+    delay: number,
+    volume: number,
+    playbackRate: number,
+  ): void {
+    const context = sound.context;
+    const start = context.currentTime + delay;
+    const source = context.createBufferSource();
+    const gain = context.createGain();
+    source.buffer = buffer;
+    source.playbackRate.setValueAtTime(playbackRate, start);
+    gain.gain.setValueAtTime(volume, start);
+    source.connect(gain).connect(sound.output);
+    this.registerSource(sound, source, [gain]);
+    source.start(start);
   }
 
   private addVoiceSyllable(

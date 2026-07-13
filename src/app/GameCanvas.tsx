@@ -9,6 +9,8 @@ import type {
 
 interface GameCanvasProps {
   bridge: GameBridge;
+  playerLevel: number;
+  onReady?: () => void;
   onViewportChange?: (viewport: GameCanvasViewport) => void;
 }
 
@@ -29,12 +31,15 @@ const toCanvasViewport = (viewport: ArenaViewport): GameCanvasViewport => ({
 });
 
 export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function GameCanvas(
-  { bridge, onViewportChange },
+  { bridge, playerLevel, onReady, onViewportChange },
   ref,
 ) {
   const parentRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<ArenaGame | null>(null);
+  const matchLevelRef = useRef(playerLevel);
+  const readyRef = useRef(onReady);
   const viewportChangeRef = useRef(onViewportChange);
+  readyRef.current = onReady;
   viewportChangeRef.current = onViewportChange;
 
   useImperativeHandle(ref, () => ({
@@ -46,7 +51,7 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
   useEffect(() => {
     const parent = parentRef.current;
     if (!parent) return;
-    const arenaGame = createGame(parent, bridge);
+    const arenaGame = createGame(parent, bridge, matchLevelRef.current, () => readyRef.current?.());
     gameRef.current = arenaGame;
     let animationFrame: number | null = null;
 

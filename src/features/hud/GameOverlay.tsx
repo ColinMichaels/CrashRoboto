@@ -198,7 +198,7 @@ export function GameOverlay({ snapshot, pilotId, onRestart, onResume, onNextRoun
       </div>
       {cacheReward && (
         <div className="result-cache-teaser" aria-label={`${cacheReward.reveals.length} bonus ${cacheReward.reveals.length === 1 ? 'chest' : 'chests'} recovered`}>
-          <span className="result-cache-icon" style={{ '--cache-art': `url("${import.meta.env.BASE_URL}assets/game/vault-sprites.png")` } as CSSProperties} aria-hidden="true" />
+          <span className="result-cache-icon" style={{ '--cache-art': `url("${import.meta.env.BASE_URL}assets/game/vault-sprites.webp")` } as CSSProperties} aria-hidden="true" />
           <span><small>VICTORY DROP</small><strong>{cacheReward.reveals.length} BONUS {cacheReward.reveals.length === 1 ? 'CACHE' : 'CACHES'}</strong></span>
         </div>
       )}

@@ -9,8 +9,8 @@ import { DEFAULT_SFX_VOLUME, parseAudioVolumePreference } from './audioVolume';
 
 describe('music catalog helpers', () => {
   it('uses the audible default when no music level has been stored', () => {
-    expect(DEFAULT_MUSIC_VOLUME).toBe(0.5);
-    expect(DEFAULT_SFX_VOLUME).toBe(0.5);
+    expect(DEFAULT_MUSIC_VOLUME).toBe(0.1);
+    expect(DEFAULT_SFX_VOLUME).toBe(0.6);
     expect(parseMusicVolumePreference(null)).toBe(DEFAULT_MUSIC_VOLUME);
     expect(parseMusicVolumePreference('not-a-level')).toBe(DEFAULT_MUSIC_VOLUME);
   });

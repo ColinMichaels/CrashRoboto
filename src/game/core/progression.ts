@@ -2,7 +2,7 @@ import type { MatchResult, Team } from './types';
 
 export const BASE_FIRMWARE_BUDGET = 6;
 export const MAX_FIRMWARE_BUDGET = 12;
-export const MAX_PLAYER_LEVEL = 20;
+export const MAX_PLAYER_LEVEL = 40;
 
 export const SCORE_AWARDS = {
   unit: 50,

@@ -112,13 +112,17 @@ export class BattleScene extends Scene {
   private arenaViewport = createArenaViewport(BOARD_WIDTH, BOARD_HEIGHT);
   private presentationReady = false;
 
-  constructor(private readonly bridge: GameBridge) {
+  constructor(
+    private readonly bridge: GameBridge,
+    private readonly playerLevel: number,
+    private readonly onReady?: () => void,
+  ) {
     super('battle');
   }
 
   preload(): void {
     const base = import.meta.env.BASE_URL;
-    for (const asset of getArenaAssetManifest(this.bridge.getSnapshot().decks)) {
+    for (const asset of getArenaAssetManifest(this.bridge.getSnapshot().decks, this.playerLevel)) {
       const path = `${base}${asset.path}`;
       if (asset.type === 'image') {
         this.load.image(asset.key, path);
@@ -200,6 +204,8 @@ export class BattleScene extends Scene {
     this.events.once('shutdown', cleanup);
     this.events.once('destroy', cleanup);
     this.syncPresentation();
+    // Remove the deployment cover only after the first complete scene sync.
+    this.onReady?.();
   }
 
   resizeArenaViewport(width: number, height: number): ArenaViewport {

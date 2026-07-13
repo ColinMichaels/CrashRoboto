@@ -29,6 +29,7 @@ import { TutorialCoach, type TutorialStep } from '../features/tutorial/TutorialC
 import {
   CARDS,
   cloneRobotUpgrades,
+  DEFAULT_ENEMY_DECK,
   DEFAULT_PLAYER_DECK,
   DECK_SIZE,
   ROBOT_CARD_IDS,
@@ -45,10 +46,14 @@ import { DECK_PRESETS, type DeckPresetId } from '../game/core/deckGuidance';
 import { readStorageItem, writeStorageItem } from './browserStorage';
 import type { GameCanvasHandle } from './GameCanvas';
 import { readLobbyLoadout, resetLobbyLoadout, saveLobbyLoadout } from './loadoutStorage';
+import {
+  loadGameCanvasModule,
+  prepareMatchAssets,
+  type AssetLoadProgress,
+} from './assetPreloader';
+import { GameLoadingScreen } from './GameLoadingScreen';
 
-const loadGameCanvas = () => import('./GameCanvas');
-const GameCanvas = lazy(() => loadGameCanvas().then((module) => ({ default: module.GameCanvas })));
-const prepareArena = () => { void loadGameCanvas(); };
+const GameCanvas = lazy(() => loadGameCanvasModule().then((module) => ({ default: module.GameCanvas })));
 const LEGACY_MUTE_STORAGE_KEY = 'crash-roboto-muted';
 const SFX_MUTE_STORAGE_KEY = 'crash-roboto-sfx-muted';
 const MUSIC_MUTE_STORAGE_KEY = 'crash-roboto-music-muted';
@@ -59,6 +64,20 @@ const BATTLE_MUSIC_PLAYLIST = getBundledMusicPlaylist();
 const LOBBY_MUSIC_PLAYLIST = getBundledLobbyMusicPlaylist();
 const POWER_DRAIN_PREVIEW_ENABLED = import.meta.env.DEV &&
   new URLSearchParams(window.location.search).get('preview') === 'power-drain';
+
+interface ArenaLoadState {
+  active: boolean;
+  progress: number;
+  label: string;
+  error: string | null;
+}
+
+const IDLE_ARENA_LOAD: ArenaLoadState = {
+  active: false,
+  progress: 0,
+  label: 'PREPARING DEPLOYMENT GRID',
+  error: null,
+};
 
 function readMutePreference(key: string): boolean {
   const stored = readStorageItem(key);
@@ -94,6 +113,7 @@ export function App() {
   const [sfxVolume, setSfxVolume] = useState(() => sound.getVolume());
   const [musicMuted, setMusicMuted] = useState(() => readMutePreference(MUSIC_MUTE_STORAGE_KEY));
   const [inspectedRobot, setInspectedRobot] = useState<RobotCardId | null>(null);
+  const [arenaLoad, setArenaLoad] = useState<ArenaLoadState>(IDLE_ARENA_LOAD);
   const {
     playerProgress,
     cardCollection,
@@ -170,17 +190,17 @@ export function App() {
   }, [sound]);
 
   const selectMode = useCallback((modeId: GameModeId) => {
-    sound.blip();
+    sound.playInterfaceSound('modeSelect');
     setLobbyLoadout((current) => ({ ...current, modeId }));
   }, [sound]);
 
   const selectPilot = useCallback((pilotId: PilotId) => {
-    sound.blip();
+    sound.playInterfaceSound('pilotSelect');
     setLobbyLoadout((current) => ({ ...current, pilotId }));
   }, [sound]);
 
   const selectTowerWeapon = useCallback((lane: Lane, weaponId: TowerWeaponId) => {
-    sound.blip();
+    sound.playInterfaceSound('towerWeaponSelect');
     setLobbyLoadout((current) => ({
       ...current,
       towerWeapons: { ...current.towerWeapons, [lane]: weaponId },
@@ -189,6 +209,7 @@ export function App() {
 
   const toggleLobbyCard = useCallback((cardId: CardId) => {
     if (!isCardUnlocked(cardCollection, cardId)) return;
+    sound.playInterfaceSound(lobbyLoadout.deck.includes(cardId) ? 'cardRemove' : 'cardAdd');
     sound.playCardSelected(cardId);
     setLobbyLoadout((current) => {
       if (current.deck.includes(cardId)) {
@@ -201,9 +222,10 @@ export function App() {
       if (current.deck.length >= DECK_SIZE) return current;
       return { ...current, deck: [...current.deck, cardId] };
     });
-  }, [cardCollection, sound]);
+  }, [cardCollection, lobbyLoadout.deck, sound]);
 
   const removeLobbyCard = useCallback((cardId: CardId) => {
+    sound.playInterfaceSound('cardRemove');
     sound.playCardSelected(cardId);
     setLobbyLoadout((current) => {
       const upgrades = cloneRobotUpgrades(current.upgrades);
@@ -219,7 +241,7 @@ export function App() {
   }, [sound]);
 
   const applyDeckPreset = useCallback((presetId: DeckPresetId) => {
-    sound.blip();
+    sound.playInterfaceSound('loadoutPreset');
     setLobbyLoadout((current) => {
       const deck = DECK_PRESETS[presetId].deck.filter((cardId) => isCardUnlocked(cardCollection, cardId));
       if (deck.length !== DECK_SIZE) return current;
@@ -232,6 +254,15 @@ export function App() {
   }, [cardCollection, sound]);
 
   const adjustLobbyUpgrade = useCallback((robotId: RobotCardId, stat: UpgradeStat, change: -1 | 1) => {
+    const currentTier = lobbyLoadout.upgrades[robotId][stat];
+    if (
+      !lobbyLoadout.deck.includes(robotId) ||
+      (change > 0 && (currentTier >= 2 || firmwareRemaining <= 0)) ||
+      (change < 0 && currentTier <= 0)
+    ) return;
+    sound.playInterfaceSound(
+      change < 0 ? 'upgradeRemove' : currentTier === 0 ? 'upgradeOne' : 'upgradeTwo',
+    );
     setLobbyLoadout((current) => {
       if (!current.deck.includes(robotId)) return current;
       const currentTier = current.upgrades[robotId][stat];
@@ -246,11 +277,10 @@ export function App() {
       upgrades[robotId][stat] = (currentTier + change) as 0 | 1 | 2;
       return { ...current, upgrades };
     });
-    sound.blip();
-  }, [firmwareBudget, sound]);
+  }, [firmwareBudget, firmwareRemaining, lobbyLoadout.deck, lobbyLoadout.upgrades, sound]);
 
   const resetLoadout = useCallback(() => {
-    sound.blip();
+    sound.playInterfaceSound('loadoutPreset');
     setLobbyLoadout(resetLobbyLoadout());
   }, [sound]);
 
@@ -261,27 +291,63 @@ export function App() {
     if (!musicMuted) void music.play();
   }, [music, musicMuted]);
 
-  const launchMatch = useCallback(() => {
+  const prepareArena = useCallback((onProgress?: (progress: AssetLoadProgress) => void) => (
+    prepareMatchAssets({
+      player: lobbyLoadout.deck,
+      enemy: [...DEFAULT_ENEMY_DECK],
+    }, playerLevel, onProgress)
+  ), [lobbyLoadout.deck, playerLevel]);
+
+  const launchMatch = useCallback(async () => {
     if (
       lobbyLoadout.deck.length !== DECK_SIZE ||
       lobbyLoadout.deck.some((cardId) => !isCardUnlocked(cardCollection, cardId))
     ) return;
-    saveLobbyLoadout(lobbyLoadout);
-    clearMatchRewards();
-    startMusicPlaylist(BATTLE_MUSIC_PLAYLIST);
-    dispatch({
-      type: 'start',
-      config: {
-        modeId: lobbyLoadout.modeId,
-        playerDeck: [...lobbyLoadout.deck],
-        playerUpgrades: lobbyLoadout.upgrades,
-        playerCardLevels: getCollectionCardLevels(cardCollection),
-        playerTowerWeapons: lobbyLoadout.towerWeapons,
-        playerFirmwareBudget: firmwareBudget,
-      },
-    });
-    if (tutorialStep === 'launch') setTutorialStep('select');
-  }, [cardCollection, clearMatchRewards, dispatch, firmwareBudget, lobbyLoadout, startMusicPlaylist, tutorialStep]);
+    sound.playInterfaceSound('matchLaunch');
+    setArenaLoad({ ...IDLE_ARENA_LOAD, active: true });
+    try {
+      // The player may have changed the saved deck after boot, so deployment
+      // validates the current manifest before switching the bridge into battle.
+      await prepareArena((progress) => {
+        setArenaLoad({
+          active: true,
+          progress: progress.ratio,
+          label: progress.label,
+          error: null,
+        });
+      });
+      saveLobbyLoadout(lobbyLoadout);
+      clearMatchRewards();
+      startMusicPlaylist(BATTLE_MUSIC_PLAYLIST);
+      dispatch({
+        type: 'start',
+        config: {
+          modeId: lobbyLoadout.modeId,
+          playerDeck: [...lobbyLoadout.deck],
+          playerUpgrades: lobbyLoadout.upgrades,
+          playerCardLevels: getCollectionCardLevels(cardCollection),
+          playerTowerWeapons: lobbyLoadout.towerWeapons,
+          playerFirmwareBudget: firmwareBudget,
+        },
+      });
+      if (tutorialStep === 'launch') setTutorialStep('select');
+    } catch (reason) {
+      setArenaLoad({
+        active: true,
+        progress: 0,
+        label: 'DEPLOYMENT LINK INTERRUPTED',
+        error: reason instanceof Error ? reason.message : 'The combat assets could not be prepared.',
+      });
+    }
+  }, [cardCollection, clearMatchRewards, dispatch, firmwareBudget, lobbyLoadout, prepareArena, sound, startMusicPlaylist, tutorialStep]);
+
+  const retryArenaLoad = useCallback(() => {
+    void launchMatch();
+  }, [launchMatch]);
+
+  const handleArenaReady = useCallback(() => {
+    setArenaLoad(IDLE_ARENA_LOAD);
+  }, []);
 
   const startTutorial = useCallback(() => {
     tutorialFirmwareBaselineRef.current = firmwareSpent;
@@ -299,6 +365,7 @@ export function App() {
     dragOriginRef.current = null;
     setInspectedRobot(null);
     clearMatchRewards();
+    setArenaLoad(IDLE_ARENA_LOAD);
     startMusicPlaylist(LOBBY_MUSIC_PLAYLIST);
     dispatch({ type: 'returnToLobby' });
   }, [clearMatchRewards, dispatch, startMusicPlaylist]);
@@ -326,20 +393,22 @@ export function App() {
   const togglePause = useCallback(() => {
     dragOriginRef.current = null;
     setInspectedRobot(null);
+    sound.playInterfaceSound(snapshotRef.current.phase === 'paused' ? 'resume' : 'pause');
     dispatch({ type: 'togglePause' });
-  }, [dispatch]);
+  }, [dispatch, sound]);
 
   const inspectRobot = useCallback((robotId: RobotCardId, trigger: HTMLButtonElement) => {
     dragOriginRef.current = null;
     labTriggerRef.current = trigger;
-    sound.blip();
+    sound.playInterfaceSound('panelOpen');
     setInspectedRobot(robotId);
   }, [sound]);
 
   const closeRobotStats = useCallback(() => {
+    sound.playInterfaceSound('panelClose');
     setInspectedRobot(null);
     window.requestAnimationFrame(() => labTriggerRef.current?.focus({ preventScroll: true }));
-  }, []);
+  }, [sound]);
 
   const playDraggedCard = useCallback((cardId: CardId, clientX: number, clientY: number) => {
     const point = gameCanvasRef.current?.clientToWorld(clientX, clientY);
@@ -360,6 +429,9 @@ export function App() {
     playDraggedCard(drag.cardId, clientX, clientY);
   }, [playDraggedCard]);
 
+  useEffect(() => {
+    void sound.preload();
+  }, [sound]);
   useEffect(() => {
     sound.setMuted(sfxMuted);
     writeStorageItem(SFX_MUTE_STORAGE_KEY, String(sfxMuted));
@@ -524,8 +596,9 @@ export function App() {
             onStartTutorial={startTutorial}
             tutorialCompleted={tutorialCompleted}
             onReset={resetLoadout}
-            onPrepareLaunch={prepareArena}
-            onLaunch={launchMatch}
+            launchPreparing={arenaLoad.active}
+            onPrepareLaunch={() => { void prepareArena(); }}
+            onLaunch={() => { void launchMatch(); }}
           />
         ) : (
           <>
@@ -533,6 +606,8 @@ export function App() {
               <GameCanvas
                 ref={gameCanvasRef}
                 bridge={bridge}
+                playerLevel={playerLevel}
+                onReady={handleArenaReady}
                 onViewportChange={() => { dragOriginRef.current = null; }}
               />
             </Suspense>
@@ -575,6 +650,15 @@ export function App() {
           onVolumeChange={changeMusicVolume}
           onSfxVolumeChange={changeSfxVolume}
         />
+        {arenaLoad.active && (
+          <GameLoadingScreen
+            mode="deployment"
+            progress={arenaLoad.progress}
+            label={arenaLoad.label}
+            error={arenaLoad.error}
+            onRetry={arenaLoad.error ? retryArenaLoad : undefined}
+          />
+        )}
         {POWER_DRAIN_PREVIEW_ENABLED && snapshot.phase === 'playing' && (
           <button
             className="power-drain-preview-button"
