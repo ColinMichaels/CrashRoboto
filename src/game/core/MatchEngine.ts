@@ -618,6 +618,7 @@ export class MatchEngine {
       lane: x < 800 ? 'left' : 'right',
       x,
       y,
+      facing: team === 'player' ? -Math.PI / 2 : Math.PI / 2,
       hp: stats.maxHp,
       maxHp: stats.maxHp,
       radius: definition.radius,
@@ -747,9 +748,10 @@ export class MatchEngine {
       }
       installation.cooldownMs = Math.max(0, installation.cooldownMs - dtMs);
       installation.disabledMs = Math.max(0, installation.disabledMs - dtMs);
-      if (installation.hp <= 0 || installation.remainingMs <= 0 || installation.disabledMs > 0 || installation.cooldownMs > 0) continue;
+      if (installation.hp <= 0 || installation.remainingMs <= 0 || installation.disabledMs > 0) continue;
 
       if (installation.kind === 'foundry') {
+        if (installation.cooldownMs > 0) continue;
         const direction = installation.team === 'player' ? -1 : 1;
         this.spawnUnit(installation.team, 'microbot', installation.x - 22, installation.y + direction * 28);
         this.spawnUnit(installation.team, 'microbot', installation.x + 22, installation.y + direction * 28);
@@ -766,10 +768,12 @@ export class MatchEngine {
       ).damage;
 
       const targets = this.units
-        .filter((unit) => unit.team !== installation.team && unit.hp > 0 && unit.lane === installation.lane && distance(unit, installation) <= definition.range)
+        .filter((unit) => unit.team !== installation.team && unit.hp > 0 && distance(unit, installation) <= definition.range)
         .sort((a, b) => distance(a, installation) - distance(b, installation));
       const target = targets[0];
       if (!target) continue;
+      this.faceToward(installation, target);
+      if (installation.cooldownMs > 0) continue;
       const attackId = this.fireProjectile(
         definition.projectile ?? 'bullet',
         this.installationRef(installation),
@@ -875,6 +879,7 @@ export class MatchEngine {
           .filter((candidate) => candidate.id !== unit.id && candidate.team === unit.team && candidate.hp > 0 && candidate.hp < candidate.maxHp && distance(candidate, unit) <= stats.range)
           .sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
         if (ally) {
+          this.faceToward(unit, ally);
           ally.hp = Math.min(ally.maxHp, ally.hp + stats.heal);
           unit.cooldown = definition.attackInterval;
           this.emit({ type: 'impact', x: ally.x, y: ally.y, team: unit.team, amount: -stats.heal });
@@ -884,6 +889,7 @@ export class MatchEngine {
           .filter((candidate) => candidate.team === unit.team && candidate.hp > 0 && candidate.hp < candidate.maxHp && distance(candidate, unit) <= stats.range)
           .sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
         if (installation) {
+          this.faceToward(unit, installation);
           installation.hp = Math.min(installation.maxHp, installation.hp + stats.heal * 0.5);
           unit.cooldown = definition.attackInterval;
           this.emit({ type: 'impact', x: installation.x, y: installation.y, team: unit.team, amount: -stats.heal * 0.5 });
@@ -893,6 +899,7 @@ export class MatchEngine {
 
       const enemyUnit = this.findEnemyUnit(unit);
       if (enemyUnit) {
+        this.faceToward(unit, enemyUnit);
         const attackDistance = stats.range + enemyUnit.radius * 0.35;
         if (distance(unit, enemyUnit) <= attackDistance) {
           if (unit.cooldown === 0) this.attackUnit(unit, enemyUnit);
@@ -906,6 +913,7 @@ export class MatchEngine {
             enemyUnit,
             stats.speed * (boosted ? 1.25 : 1) * slowMultiplier,
             dt,
+            enemyUnit.lane,
           );
         }
         continue;
@@ -913,6 +921,7 @@ export class MatchEngine {
 
       const structure = this.getStructureTarget(unit);
       if (!structure) continue;
+      this.faceToward(unit, structure);
       const structurePadding = isInstallation(structure) ? structure.radius : TOWER_COMBAT_RADIUS[structure.kind];
       const attackDistance = stats.range + structurePadding;
       if (distance(unit, structure) <= attackDistance) {
@@ -941,12 +950,14 @@ export class MatchEngine {
   private findEnemyUnit(unit: UnitState): UnitState | undefined {
     const definition = ROBOTS[unit.kind];
     if (definition.structureOnly) return undefined;
+    const stats = this.getUnitStats(unit);
     const leash = definition.structurePreferred ? 84 : 190;
     return this.units
       .filter((candidate) => {
-        if (candidate.team === unit.team || candidate.hp <= 0 || candidate.lane !== unit.lane) return false;
+        if (candidate.team === unit.team || candidate.hp <= 0) return false;
         if (ROBOTS[candidate.kind].flying && definition.targeting === 'ground') return false;
-        return distance(candidate, unit) <= leash;
+        const attackDistance = stats.range + candidate.radius * 0.35;
+        return distance(candidate, unit) <= Math.max(leash, attackDistance);
       })
       .sort((a, b) => distance(a, unit) - distance(b, unit))[0];
   }
@@ -1008,7 +1019,13 @@ export class MatchEngine {
     return true;
   }
 
-  private moveToward(unit: UnitState, destination: { x: number; y: number }, speed: number, dt: number): void {
+  private moveToward(
+    unit: UnitState,
+    destination: { x: number; y: number },
+    speed: number,
+    dt: number,
+    destinationLane?: Lane,
+  ): void {
     const dx = destination.x - unit.x;
     const dy = destination.y - unit.y;
     const length = Math.hypot(dx, dy);
@@ -1017,6 +1034,25 @@ export class MatchEngine {
     unit.x += (dx / length) * move;
     unit.y += (dy / length) * move;
     unit.facing = Math.atan2(dy, dx);
+    // A cross-lane chase becomes permanent only after the unit physically
+    // crosses the arena centerline; ranged attacks across lanes do not reroute it.
+    if (
+      destinationLane &&
+      destinationLane !== unit.lane &&
+      ((destinationLane === 'left' && unit.x < 800) ||
+        (destinationLane === 'right' && unit.x > 800))
+    ) {
+      unit.lane = destinationLane;
+    }
+  }
+
+  private faceToward(
+    source: { x: number; y: number; facing: number },
+    target: { x: number; y: number },
+  ): void {
+    const dx = target.x - source.x;
+    const dy = target.y - source.y;
+    if (Math.abs(dx) + Math.abs(dy) > 0.001) source.facing = Math.atan2(dy, dx);
   }
 
   private unitRef(unit: UnitState): CombatEntityRef {
@@ -1167,6 +1203,7 @@ export class MatchEngine {
   private attackUnit(attacker: UnitState, target: UnitState): void {
     const definition = ROBOTS[attacker.kind];
     const stats = this.getUnitStats(attacker);
+    this.faceToward(attacker, target);
     const attackId = this.fireProjectile(
       definition.projectile,
       this.unitRef(attacker),
@@ -1196,6 +1233,7 @@ export class MatchEngine {
     if (structure.hp <= 0) return;
     const definition = ROBOTS[attacker.kind];
     const stats = this.getUnitStats(attacker);
+    this.faceToward(attacker, structure);
     const attackId = this.fireProjectile(
       definition.projectile,
       this.unitRef(attacker),
