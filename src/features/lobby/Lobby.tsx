@@ -242,16 +242,20 @@ function CardChip({ card, upgrades, collectionEntry, locked = false, selected = 
           {onInspect ? 'LAB' : 'INTEL'}
         </button>
       )}
+      {!onInspect && !onIntel && <span className="lobby-card-action-spacer" aria-hidden="true" />}
     </div>
   );
 }
 
 function EmptyLoadoutSlot({ index }: { index: number }) {
   return (
-    <div className="lobby-card lobby-card-loadout is-empty" aria-label={`Loadout slot ${index + 1}, empty`}>
-      <span className="empty-slot-index">{String(index + 1).padStart(2, '0')}</span>
-      <span className="empty-slot-mark" aria-hidden="true" />
-      <span className="lobby-card-name">EMPTY</span>
+    <div className="lobby-card-shell lobby-card-shell-loadout">
+      <div className="lobby-card lobby-card-loadout is-empty" aria-label={`Loadout slot ${index + 1}, empty`}>
+        <span className="empty-slot-index">{String(index + 1).padStart(2, '0')}</span>
+        <span className="empty-slot-mark" aria-hidden="true" />
+        <span className="lobby-card-name">EMPTY</span>
+      </div>
+      <span className="lobby-card-action-spacer" aria-hidden="true" />
     </div>
   );
 }

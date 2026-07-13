@@ -213,10 +213,26 @@ export class BattleScene extends Scene {
 
   private applyArenaViewport(): void {
     const viewport = this.arenaViewport;
-    this.cameras.main
-      .setViewport(0, 0, viewport.screenWidth, viewport.screenHeight)
-      .setBounds(0, 0, BOARD_WIDTH, BOARD_HEIGHT)
-      .setZoom(viewport.zoomX, viewport.zoomY)
+    const camera = this.cameras.main
+      .setViewport(
+        viewport.renderX,
+        viewport.renderY,
+        viewport.renderWidth,
+        viewport.renderHeight,
+      )
+      .setBounds(0, 0, BOARD_WIDTH, BOARD_HEIGHT);
+
+    if (viewport.orientation === 'portrait') {
+      // A single zoom value keeps the board, towers, and units proportional.
+      // The canvas normally matches the fixed playable crop's aspect ratio;
+      // the contained viewport also prevents distortion during transient resize.
+      camera.setZoom(viewport.zoomX);
+    } else {
+      // Retain the established full-board landscape composition.
+      camera.setZoom(viewport.zoomX, viewport.zoomY);
+    }
+
+    camera
       .centerOn(
         viewport.worldX + viewport.worldWidth / 2,
         viewport.worldY + viewport.worldHeight / 2,

@@ -2603,10 +2603,21 @@ kbd {
     clip-path: none;
   }
 
+  .game-frame.is-battle {
+    --portrait-dock-height: clamp(118px, 21dvh, 144px);
+    --portrait-dock-bottom: max(8px, env(safe-area-inset-bottom, 0px));
+    /* 548 × 684 is the smallest undistorted crop containing the complete
+       deployment width and both Relay sprites. */
+    --portrait-arena-height: min(
+      calc(100dvh - var(--portrait-dock-height) - var(--portrait-dock-bottom) - 2px),
+      124.8175dvw
+    );
+  }
+
   .game-frame.is-battle .game-canvas {
     top: 0;
-    bottom: calc(clamp(118px, 21dvh, 144px) + max(8px, env(safe-area-inset-bottom, 0px)) + 2px);
-    height: auto !important;
+    bottom: auto;
+    height: var(--portrait-arena-height) !important;
   }
 
   .match-header {
@@ -2656,7 +2667,12 @@ kbd {
   }
 
   .hud-layer::before {
-    height: calc(clamp(118px, 21dvh, 144px) + max(8px, env(safe-area-inset-bottom, 0px)) + 2px);
+    height: calc(100% - var(--portrait-arena-height));
+    background:
+      linear-gradient(rgba(40, 231, 210, 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(40, 231, 210, 0.035) 1px, transparent 1px),
+      linear-gradient(180deg, rgba(10, 24, 30, 0.995), rgba(4, 12, 16, 1));
+    background-size: 22px 22px, 22px 22px, auto;
   }
 
   .command-rail {
@@ -2864,7 +2880,11 @@ kbd {
   }
 
   .utility-button {
-    bottom: calc(max(8px, env(safe-area-inset-bottom, 0px)) + clamp(118px, 21dvh, 144px) + 8px);
+    top: min(
+      calc(var(--portrait-arena-height) + 16px),
+      calc(100dvh - var(--portrait-dock-bottom) - var(--portrait-dock-height) - 52px)
+    );
+    bottom: auto;
     width: 44px;
     min-width: 44px;
     min-height: 44px;
