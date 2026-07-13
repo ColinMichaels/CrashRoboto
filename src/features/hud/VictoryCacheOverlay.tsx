@@ -74,7 +74,7 @@ export function VictoryCacheOverlay({ reward, onContinue }: VictoryCacheOverlayP
 
       <div className="victory-cache-hero" aria-hidden="true">
         <i />
-        <img src={`${import.meta.env.BASE_URL}assets/game/bonus-cache-open.png`} alt="" />
+        <img src={`${import.meta.env.BASE_URL}assets/game/bonus-cache-open.webp`} alt="" />
         {nextChest && (
           <span className="victory-cache-queue">
             <small>NEXT · {TIER_LABELS[nextChest.tier]}</small>

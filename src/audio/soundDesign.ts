@@ -50,10 +50,25 @@ export type SoundCue =
   | { kind: 'dash'; team: Team }
   | { kind: 'overdrive'; team: Team }
   | { kind: 'upgrade'; team: Team; tier: 1 | 2 }
-  | { kind: 'weapon'; projectile: ProjectileKind; team: Team; attackId: number; impactDelay: number }
-  | { kind: 'destruction'; size: 'unit' | 'installation'; team: Team; cause: 'projectile' | 'program' | 'decay' | 'power-drain' }
+  | {
+      kind: 'weapon';
+      projectile: ProjectileKind;
+      team: Team;
+      attackId: number;
+      impactDelay: number;
+      sourceId: string;
+      sourceType: 'unit' | 'installation' | 'tower';
+      targetType: 'unit' | 'installation' | 'tower';
+    }
+  | {
+      kind: 'destruction';
+      size: 'unit' | 'installation';
+      team: Team;
+      cause: 'projectile' | 'program' | 'decay' | 'power-drain';
+      entityId: string;
+    }
   | { kind: 'tower'; towerKind: TowerKind; team: Team }
-  | { kind: 'matchEnd'; winner: Team | 'draw' };
+  | { kind: 'matchEnd'; winner: Team | 'draw'; final: boolean };
 
 export function getCardSelectionCue(cardId: CardId): SoundCue {
   return { kind: 'cardVoice', cardId, variant: 'selected', team: 'player' };
@@ -77,7 +92,7 @@ export function getSoundCuesForEvent(event: GameEvent): SoundCue[] {
     case 'powerDrainStarted':
       return [{ kind: 'powerDrain', warningMs: event.warningMs, durationMs: event.durationMs }];
     case 'roundEnded':
-      return event.matchComplete ? [] : [{ kind: 'matchEnd', winner: event.result.winner }];
+      return event.matchComplete ? [] : [{ kind: 'matchEnd', winner: event.result.winner, final: false }];
     case 'cardSelected':
       return [{ kind: 'cardVoice', cardId: event.cardId, variant: 'selected', team: event.team }];
     case 'cardPlayed': {
@@ -106,6 +121,9 @@ export function getSoundCuesForEvent(event: GameEvent): SoundCue[] {
         team: event.source.team,
         attackId: event.attackId,
         impactDelay: getProjectileImpactDelaySeconds(event),
+        sourceId: event.source.id,
+        sourceType: event.source.entityType,
+        targetType: event.target.entityType,
       }];
     case 'entityDestroyed':
       if (event.entity.entityType === 'tower') return [];
@@ -114,12 +132,13 @@ export function getSoundCuesForEvent(event: GameEvent): SoundCue[] {
         size: event.entity.entityType,
         team: event.entity.team,
         cause: event.cause,
+        entityId: event.entity.id,
       }];
     case 'impact':
       return [];
     case 'towerDestroyed':
       return [{ kind: 'tower', towerKind: event.tower.kind, team: event.tower.team }];
     case 'matchEnded':
-      return [{ kind: 'matchEnd', winner: event.result.winner }];
+      return [{ kind: 'matchEnd', winner: event.result.winner, final: true }];
   }
 }

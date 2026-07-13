@@ -27,11 +27,11 @@ interface TowerMilestone {
 }
 
 const BOARD_PATHS: Readonly<Record<ArenaBoardTheme, string>> = {
-  foundry: 'assets/game/arena-board-long.png',
-  sewer: 'assets/game/arena-board-sewer.png',
-  volcanic: 'assets/game/arena-board-volcanic.png',
-  orbital: 'assets/game/arena-board-orbital.png',
-  alien: 'assets/game/arena-board-alien.png',
+  foundry: 'assets/game/arena-board-long.webp',
+  sewer: 'assets/game/arena-board-sewer.webp',
+  volcanic: 'assets/game/arena-board-volcanic.webp',
+  orbital: 'assets/game/arena-board-orbital.webp',
+  alien: 'assets/game/arena-board-alien.webp',
 };
 
 const TOWER_MILESTONES: readonly TowerMilestone[] = [

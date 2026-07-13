@@ -1,0 +1,199 @@
+.game-loading-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  overflow: hidden;
+  color: var(--mint);
+  background:
+    radial-gradient(circle at 50% 42%, rgba(25, 118, 116, 0.24), transparent 34%),
+    linear-gradient(145deg, #02070a, #071218 55%, #03090d);
+  place-items: center;
+  isolation: isolate;
+}
+
+.game-loading-screen.is-deployment {
+  position: absolute;
+  z-index: 80;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(25, 118, 116, 0.27), transparent 38%),
+    rgba(2, 7, 10, 0.97);
+}
+
+.game-loader-grid {
+  position: absolute;
+  inset: -35%;
+  z-index: -1;
+  opacity: 0.25;
+  background-image:
+    linear-gradient(rgba(40, 231, 210, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(40, 231, 210, 0.08) 1px, transparent 1px);
+  background-size: 42px 42px;
+  transform: perspective(620px) rotateX(62deg) translateY(28%);
+  mask-image: radial-gradient(ellipse, black, transparent 66%);
+}
+
+.game-loader-console {
+  display: flex;
+  width: min(430px, calc(100vw - 48px));
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.game-loader-mark {
+  position: relative;
+  display: grid;
+  width: clamp(76px, 10vw, 112px);
+  aspect-ratio: 1;
+  margin-bottom: 20px;
+  place-items: center;
+}
+
+.game-loader-mark::before,
+.game-loader-mark::after,
+.game-loader-mark i {
+  position: absolute;
+  border: 1px solid rgba(40, 231, 210, 0.45);
+  content: "";
+  transform: rotate(45deg);
+}
+
+.game-loader-mark::before {
+  inset: 0;
+  animation: loader-ring 4s linear infinite;
+}
+
+.game-loader-mark::after {
+  inset: 9px;
+  border-color: rgba(246, 196, 83, 0.36);
+  animation: loader-ring-reverse 3s linear infinite;
+}
+
+.game-loader-mark i {
+  inset: 19px;
+  border-color: rgba(40, 231, 210, 0.22);
+}
+
+.game-loader-mark svg {
+  z-index: 1;
+  width: 54%;
+  fill: none;
+  stroke: var(--cyan);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3;
+  filter: drop-shadow(0 0 10px rgba(40, 231, 210, 0.55));
+}
+
+.game-loader-console h1 {
+  margin: 0;
+  color: #f1fffb;
+  font-size: clamp(1.25rem, 3vw, 2rem);
+  font-weight: 950;
+  letter-spacing: 0.18em;
+  line-height: 1;
+  text-shadow: 0 0 18px rgba(40, 231, 210, 0.24);
+}
+
+.game-loader-console > p {
+  margin: 10px 0 30px;
+  color: var(--muted);
+  font-size: clamp(0.56rem, 1vw, 0.72rem);
+  font-weight: 850;
+  letter-spacing: 0.24em;
+}
+
+.game-loader-progress {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 1fr 54px;
+  align-items: center;
+  gap: 14px;
+}
+
+.game-loader-progress > i {
+  position: relative;
+  display: block;
+  height: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(80, 220, 207, 0.38);
+  background: rgba(1, 8, 12, 0.82);
+  box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.72);
+  transform: skewX(-18deg);
+}
+
+.game-loader-progress > i > b {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--game-load-progress);
+  background: linear-gradient(90deg, #138b83, var(--cyan), #9bfff2);
+  box-shadow: 0 0 16px rgba(40, 231, 210, 0.75);
+  transition: width 180ms ease-out;
+}
+
+.game-loader-progress > strong {
+  color: var(--cyan);
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+}
+
+.game-loader-console > span {
+  align-self: flex-start;
+  margin-top: 12px;
+  color: #9ac8c2;
+  font-size: 0.58rem;
+  font-weight: 850;
+  letter-spacing: 0.14em;
+}
+
+.game-loader-error {
+  color: var(--coral);
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+}
+
+.game-loader-console > small {
+  margin: 10px 0 20px;
+  color: #a8c6c3;
+  font-size: 0.68rem;
+  line-height: 1.5;
+}
+
+.game-loader-console > button {
+  min-height: 42px;
+  padding: 0 22px;
+  border: 1px solid rgba(40, 231, 210, 0.58);
+  background: rgba(10, 31, 35, 0.92);
+  color: var(--mint);
+  cursor: pointer;
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.game-loader-console > button:hover,
+.game-loader-console > button:focus-visible {
+  border-color: var(--cyan);
+  background: rgba(17, 58, 61, 0.94);
+}
+
+@keyframes loader-ring {
+  to { transform: rotate(405deg); }
+}
+
+@keyframes loader-ring-reverse {
+  to { transform: rotate(-315deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-loader-mark::before,
+  .game-loader-mark::after {
+    animation: none;
+  }
+
+  .game-loader-progress > i > b {
+    transition: none;
+  }
+}

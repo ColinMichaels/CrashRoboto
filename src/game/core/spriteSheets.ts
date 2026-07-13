@@ -11,7 +11,7 @@ export interface SpriteSheetMetadata {
 
 export const SPRITE_SHEETS = {
   robot: {
-    assetPath: 'assets/game/robot-sprites.png',
+    assetPath: 'assets/game/robot-sprites.webp',
     textureKey: 'robot-sprites',
     columns: 4,
     rows: 2,
@@ -19,7 +19,7 @@ export const SPRITE_SHEETS = {
     frameHeight: 443,
   },
   system: {
-    assetPath: 'assets/game/system-sprites.png',
+    assetPath: 'assets/game/system-sprites.webp',
     textureKey: 'system-sprites',
     columns: 3,
     rows: 2,
@@ -27,7 +27,7 @@ export const SPRITE_SHEETS = {
     frameHeight: 512,
   },
   vault: {
-    assetPath: 'assets/game/vault-sprites.png',
+    assetPath: 'assets/game/vault-sprites.webp',
     textureKey: 'vault-sprites',
     columns: 3,
     rows: 2,

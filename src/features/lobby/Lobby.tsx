@@ -60,6 +60,7 @@ export interface LobbyProps {
   onStartTutorial: () => void;
   tutorialCompleted: boolean;
   onReset: () => void;
+  launchPreparing: boolean;
   onPrepareLaunch: () => void;
   onLaunch: () => void;
 }
@@ -307,6 +308,7 @@ export function Lobby({
   onStartTutorial,
   tutorialCompleted,
   onReset,
+  launchPreparing,
   onPrepareLaunch,
   onLaunch,
 }: LobbyProps) {
@@ -332,8 +334,8 @@ export function Lobby({
   const selectedModeDefinition = GAME_MODES[selectedMode];
   const selectedPilotDefinition = PILOTS[selectedPilot];
   const lobbyStyle = {
-    '--lobby-arena': `url("${import.meta.env.BASE_URL}assets/game/arena-board-long.png")`,
-    '--tower-weapon-sprites': `url("${import.meta.env.BASE_URL}assets/game/relay-weapon-sprites.png")`,
+    '--lobby-arena': `url("${import.meta.env.BASE_URL}assets/game/arena-board-long.webp")`,
+    '--tower-weapon-sprites': `url("${import.meta.env.BASE_URL}assets/game/relay-weapon-sprites.webp")`,
   } as CSSProperties;
 
   const closeProgression = useCallback(() => {
@@ -700,10 +702,11 @@ export function Lobby({
           onPointerEnter={onPrepareLaunch}
           onFocus={onPrepareLaunch}
           onClick={onLaunch}
-          disabled={!deckFull}
+          disabled={!deckFull || launchPreparing}
+          aria-busy={launchPreparing}
           aria-describedby={!deckFull ? launchHintId : undefined}
         >
-          <span>DEPLOY LOADOUT</span>
+          <span>{launchPreparing ? 'STAGING GRID…' : 'DEPLOY LOADOUT'}</span>
           <ForwardIcon />
         </button>
         <span id={launchHintId} className="lobby-sr-only">
