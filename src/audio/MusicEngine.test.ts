@@ -95,6 +95,19 @@ describe('MusicEngine', () => {
     expect(engine.getSnapshot().isPlaying).toBe(false);
   });
 
+  it('stops playback and rewinds the active track', async () => {
+    const { audio, engine } = createEngine();
+    await engine.play();
+    audio.currentTime = 42;
+    audio.dispatchEvent(new Event('timeupdate'));
+
+    engine.stop();
+
+    expect(audio.paused).toBe(true);
+    expect(audio.currentTime).toBe(0);
+    expect(engine.getSnapshot()).toMatchObject({ isPlaying: false, currentTime: 0 });
+  });
+
   it('advances and resumes when a playlist track ends', async () => {
     const { audio, engine } = createEngine();
     await engine.play();

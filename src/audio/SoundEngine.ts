@@ -113,6 +113,7 @@ export class SoundEngine {
   private readonly lastCueTimes = new Map<string, number>();
   private volume: number;
   private muted = false;
+  private paused = false;
   private disposed = false;
   private nextSoundId = 0;
   private lastTowerCueAt = Number.NEGATIVE_INFINITY;
@@ -171,8 +172,22 @@ export class SoundEngine {
   }
 
   unlock(): void {
-    if (this.disposed) return;
+    if (this.disposed || this.paused) return;
     const context = this.getContext();
+    if (context?.state === 'suspended') void context.resume().catch(() => undefined);
+  }
+
+  pause(): void {
+    if (this.disposed || this.paused) return;
+    this.paused = true;
+    const context = this.context;
+    if (context && context.state === 'running') void context.suspend().catch(() => undefined);
+  }
+
+  resume(): void {
+    if (this.disposed || !this.paused) return;
+    this.paused = false;
+    const context = this.context;
     if (context?.state === 'suspended') void context.resume().catch(() => undefined);
   }
 
@@ -759,7 +774,7 @@ export class SoundEngine {
     throttleSeconds = 0,
     category: SoundCategory = 'other',
   ): ActiveSound | null {
-    if (this.muted || this.volume === 0 || this.disposed) return null;
+    if (this.muted || this.paused || this.volume === 0 || this.disposed) return null;
     const context = this.getContext();
     const graph = this.graph;
     if (!context || !graph || context.state === 'closed') return null;

@@ -1102,6 +1102,22 @@ button:focus-visible {
   animation: robot-lab-in 180ms ease-out both;
 }
 
+.card-stats-dismiss-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  pointer-events: auto;
+}
+
+.card-stats-dismiss-layer.is-lobby {
+  z-index: 69;
+}
+
+.card-stats-dismiss-layer > .robot-stats-panel,
+.card-stats-dismiss-layer > .collection-intel-panel {
+  z-index: 1;
+}
+
 .robot-stats-panel::before,
 .robot-stats-panel::after {
   position: absolute;
@@ -1535,10 +1551,6 @@ button:focus-visible {
 .pause-button svg {
   fill: currentColor;
   stroke: none;
-}
-
-.sound-button {
-  left: 2.2%;
 }
 
 .pause-button {
@@ -2888,10 +2900,6 @@ kbd {
     width: 44px;
     min-width: 44px;
     min-height: 44px;
-  }
-
-  .sound-button {
-    left: max(8px, env(safe-area-inset-left, 0px));
   }
 
   .pause-button {

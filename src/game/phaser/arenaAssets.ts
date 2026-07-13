@@ -11,6 +11,12 @@ import {
   VAULT_UNIT_ATLAS_KEY,
   VAULT_UNIT_KINDS,
 } from './unitPresentation';
+import {
+  SENTRY_DIRECTION_ATLAS_KEY,
+  SENTRY_DIRECTION_ATLAS_PATH,
+  SENTRY_DIRECTION_FRAME_COUNT,
+  SENTRY_DIRECTION_FRAME_SIZE,
+} from './sentryPresentation';
 
 interface ArenaImageAsset {
   type: 'image';
@@ -60,6 +66,14 @@ const BASE_ARENA_ASSETS: readonly ArenaAsset[] = [
     endFrame: 2,
   },
   createCardSheetAsset('system'),
+  {
+    type: 'spritesheet',
+    key: SENTRY_DIRECTION_ATLAS_KEY,
+    path: SENTRY_DIRECTION_ATLAS_PATH,
+    frameWidth: SENTRY_DIRECTION_FRAME_SIZE,
+    frameHeight: SENTRY_DIRECTION_FRAME_SIZE,
+    endFrame: SENTRY_DIRECTION_FRAME_COUNT - 1,
+  },
   {
     type: 'spritesheet',
     key: 'combat-vfx-sprites',

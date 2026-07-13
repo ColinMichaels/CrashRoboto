@@ -51,16 +51,17 @@ export const TOWER_COMBAT_RADIUS = {
   core: 54,
 } as const;
 
-// Fixed structure anchors tuned to the mounting pads painted into
-// arena-board-long.png. Core sprites have an optically left-heavy frame, so
-// their anchor is shifted right while the Relay anchors use the pad centers.
+// Structure anchors map the mounting-pad centers in the 1672 × 941 source art
+// into the board's 1600 × 684 world. Core sprites have an optically left-heavy
+// frame, so their X anchor is shifted right while every Y anchor stays on its
+// painted pad center.
 export const TOWER_PAD_POSITIONS = {
-  'enemy-left': { x: 679, y: 82 },
-  'enemy-core': { x: 812, y: 74 },
-  'enemy-right': { x: 923, y: 82 },
-  'player-left': { x: 621, y: 515 },
-  'player-core': { x: 812, y: 535 },
-  'player-right': { x: 975, y: 515 },
+  'enemy-left': { x: 676, y: 69 },
+  'enemy-core': { x: 812, y: 68 },
+  'enemy-right': { x: 925, y: 69 },
+  'player-left': { x: 620, y: 568 },
+  'player-core': { x: 812, y: 576 },
+  'player-right': { x: 980, y: 568 },
 } as const;
 
 export function getMatchStage(

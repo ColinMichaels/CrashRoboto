@@ -188,6 +188,7 @@ export interface InstallationState {
   lane: Lane;
   x: number;
   y: number;
+  facing: number;
   hp: number;
   maxHp: number;
   radius: number;

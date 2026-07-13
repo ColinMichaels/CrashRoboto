@@ -38,13 +38,20 @@ export function CardCollectionPanel({ cardId, entry, onClose }: CardCollectionPa
   }, [cardId]);
 
   return (
-    <section
-      className={`collection-intel-panel category-${card.category}${locked ? ' is-locked' : ''}`}
-      role="dialog"
-      aria-modal="false"
-      aria-labelledby="collection-intel-title"
-      aria-describedby="collection-intel-description"
+    <div
+      className="card-stats-dismiss-layer is-lobby"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+      data-testid="card-stats-dismiss-layer"
     >
+      <section
+        className={`collection-intel-panel category-${card.category}${locked ? ' is-locked' : ''}`}
+        role="dialog"
+        aria-modal="false"
+        aria-labelledby="collection-intel-title"
+        aria-describedby="collection-intel-description"
+      >
       <header>
         <span>
           <small>VAULT CARD</small>
@@ -87,7 +94,7 @@ export function CardCollectionPanel({ cardId, entry, onClose }: CardCollectionPa
         </p>
       </div>
 
-      <div className="collection-intel-mastery">
+        <div className="collection-intel-mastery">
         <span><small>MASTERY</small><strong>{locked ? 'OFFLINE' : `+${masteryBonus}% OUTPUT / INTEGRITY`}</strong></span>
         <div aria-label={locked ? 'Card locked' : `Mastery Mark ${entry.level} of 5`}>
           {Array.from({ length: 5 }, (_, index) => (
@@ -97,7 +104,8 @@ export function CardCollectionPanel({ cardId, entry, onClose }: CardCollectionPa
             </i>
           ))}
         </div>
-      </div>
-    </section>
+        </div>
+      </section>
+    </div>
   );
 }

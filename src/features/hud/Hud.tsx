@@ -9,7 +9,6 @@ import { RobotStatsDialog } from './RobotStatsDialog';
 interface HudProps {
   snapshot: MatchSnapshot;
   pilotId: PilotId;
-  sfxMuted: boolean;
   onSelect: (cardId: CardId) => void;
   onBeginDrag: (cardId: CardId, clientX: number, clientY: number) => void;
   onCancelDrag: () => void;
@@ -19,7 +18,6 @@ interface HudProps {
   onUpgradeRobot: (robotId: RobotCardId, stat: UpgradeStat) => void;
   onActivateOverdrive: () => void;
   onTogglePause: () => void;
-  onToggleSfxMute: () => void;
   blocked: boolean;
 }
 
@@ -27,14 +25,6 @@ function formatClock(ms: number) {
   const seconds = Math.ceil(ms / 1000);
   const minutes = Math.floor(seconds / 60);
   return `${minutes}:${String(seconds % 60).padStart(2, '0')}`;
-}
-
-function SoundIcon({ muted }: { muted: boolean }) {
-  return muted ? (
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" /><path d="m17 9 4 6m0-6-4 6" /></svg>
-  ) : (
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" /><path d="M16 9c1.4 1.6 1.4 4.4 0 6m2.8-8.8c3 3.2 3 8.4 0 11.6" /></svg>
-  );
 }
 
 const STAGE_LABELS = {
@@ -46,7 +36,6 @@ const STAGE_LABELS = {
 export function Hud({
   snapshot,
   pilotId,
-  sfxMuted,
   onSelect,
   onBeginDrag,
   onCancelDrag,
@@ -56,7 +45,6 @@ export function Hud({
   onUpgradeRobot,
   onActivateOverdrive,
   onTogglePause,
-  onToggleSfxMute,
   blocked,
 }: HudProps) {
   const pilot = PILOTS[pilotId];
@@ -135,17 +123,6 @@ export function Hud({
         onActivateOverdrive={onActivateOverdrive}
       />
 
-      <button
-        className="utility-button sound-button"
-        type="button"
-        onClick={onToggleSfxMute}
-        aria-label={sfxMuted ? 'Unmute sound effects' : 'Mute sound effects'}
-        aria-pressed={sfxMuted}
-        title="Sound effects mute (Shift+M)"
-        data-testid="sfx-mute-toggle"
-      >
-        <SoundIcon muted={sfxMuted} />
-      </button>
       <button className="utility-button pause-button" type="button" onClick={onTogglePause} disabled={snapshot.phase === 'menu' || snapshot.phase === 'ended'} aria-label={snapshot.phase === 'paused' ? 'Resume game' : 'Pause game'}>
         {snapshot.phase === 'paused' ? (
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7z" /></svg>

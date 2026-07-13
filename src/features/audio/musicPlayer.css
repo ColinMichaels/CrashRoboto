@@ -355,6 +355,24 @@
   flex: 1;
 }
 
+.music-player-volume button {
+  min-width: 5.7em;
+  padding: 0.45em 0.65em;
+  border: 1px solid rgba(132, 195, 190, 0.3);
+  background: rgba(8, 24, 29, 0.78);
+  color: #8fb1ae;
+  cursor: pointer;
+  font-size: clamp(0.28rem, 0.42vw, 0.44rem);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.music-player-volume button:hover,
+.music-player-volume button.is-muted {
+  border-color: rgba(255, 107, 94, 0.65);
+  color: var(--coral);
+}
+
 .music-player-actions {
   gap: 0.5em;
 }
