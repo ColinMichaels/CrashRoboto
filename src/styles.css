@@ -378,9 +378,30 @@ button:focus-visible {
   letter-spacing: 0.18em;
 }
 
+.match-clock span.series-clock-label {
+  letter-spacing: 0.08em;
+}
+
 .match-clock.is-charge-overclock time,
 .match-clock.is-charge-overclock span {
   color: var(--amber);
+}
+
+.match-clock.is-power-drain {
+  border-color: rgba(255, 200, 87, 0.58);
+  background:
+    linear-gradient(180deg, rgba(30, 18, 4, 0.98), rgba(18, 12, 7, 0.94));
+  box-shadow: 0 0 22px rgba(255, 200, 87, 0.18);
+}
+
+.match-clock.is-power-drain time,
+.match-clock.is-power-drain span {
+  color: var(--amber);
+}
+
+.match-clock.is-power-drain time {
+  font-size: clamp(0.78rem, 1.65vw, 1.7rem);
+  letter-spacing: 0.12em;
 }
 
 .guidance-toast {
@@ -637,6 +658,10 @@ button:focus-visible {
   transition: background 140ms ease, color 140ms ease, filter 140ms ease;
 }
 
+.card-lab-label {
+  display: contents;
+}
+
 .card-upgrade-badge {
   top: 25%;
   left: 4%;
@@ -816,6 +841,10 @@ button:focus-visible {
   font-size: clamp(0.31rem, 0.52vw, 0.54rem);
   font-weight: 900;
   letter-spacing: 0.16em;
+}
+
+.next-cost {
+  display: none;
 }
 
 .next-portrait {
@@ -1765,10 +1794,249 @@ kbd {
   font-weight: 900;
 }
 
+.final-score em {
+  color: var(--amber);
+  font-size: clamp(0.45rem, 0.72vw, 0.72rem);
+  font-style: normal;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+}
+
 .final-score > i {
   width: 1px;
   height: 45px;
   background: rgba(200, 255, 244, 0.25);
+}
+
+.power-drain-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 26;
+  display: grid;
+  place-items: center;
+  padding: 8% 18% 20%;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 47%, rgba(255, 190, 65, 0.12), transparent 35%),
+    linear-gradient(180deg, rgba(20, 10, 2, 0.38), transparent 30%, transparent 72%, rgba(22, 9, 1, 0.32));
+  color: var(--amber);
+  pointer-events: none;
+  text-align: center;
+}
+
+.power-drain-overlay::before {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    180deg,
+    transparent 0,
+    transparent 6px,
+    rgba(255, 205, 105, 0.035) 7px,
+    transparent 8px
+  );
+  content: "";
+  animation: power-drain-scan 1.6s linear infinite;
+}
+
+.power-drain-overlay::after {
+  position: absolute;
+  inset: 1.4%;
+  border: 1px solid rgba(255, 200, 87, 0.32);
+  box-shadow:
+    inset 0 0 60px rgba(255, 151, 54, 0.11),
+    0 0 28px rgba(255, 200, 87, 0.08);
+  content: "";
+  clip-path: polygon(16px 0, calc(100% - 16px) 0, 100% 16px, 100% calc(100% - 16px), calc(100% - 16px) 100%, 16px 100%, 0 calc(100% - 16px), 0 16px);
+}
+
+.power-drain-panel {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: min(700px, 72vw);
+  justify-items: center;
+  padding: clamp(12px, 1.5vw, 22px) clamp(18px, 3vw, 42px);
+  border: 1px solid rgba(255, 200, 87, 0.82);
+  background:
+    linear-gradient(100deg, rgba(18, 9, 3, 0.94), rgba(38, 21, 5, 0.97) 50%, rgba(18, 9, 3, 0.94));
+  box-shadow:
+    0 0 0 1px rgba(255, 232, 178, 0.08),
+    0 0 42px rgba(255, 175, 60, 0.22),
+    inset 0 0 30px rgba(255, 197, 87, 0.06);
+  clip-path: polygon(18px 0, calc(100% - 18px) 0, 100% 18px, 100% calc(100% - 18px), calc(100% - 18px) 100%, 18px 100%, 0 calc(100% - 18px), 0 18px);
+  animation: power-drain-arrive 420ms cubic-bezier(0.2, 0.86, 0.24, 1.08) both;
+}
+
+.power-drain-kicker {
+  color: rgba(255, 226, 158, 0.76);
+  font-size: clamp(0.42rem, 0.65vw, 0.66rem);
+  font-weight: 900;
+  letter-spacing: 0.24em;
+  text-indent: 0.24em;
+}
+
+.power-drain-panel h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.55em;
+  margin: 0;
+  color: #ffe1a1;
+  font-size: clamp(1.2rem, 2.6vw, 2.65rem);
+  font-weight: 950;
+  letter-spacing: 0.14em;
+  line-height: 1.1;
+  text-indent: 0.14em;
+  text-shadow: 0 0 22px rgba(255, 188, 61, 0.45);
+}
+
+.power-drain-panel h2 i {
+  width: clamp(22px, 4vw, 62px);
+  height: 1px;
+  background: linear-gradient(90deg, transparent, currentColor);
+  box-shadow: 0 0 8px currentColor;
+}
+
+.power-drain-panel h2 i:last-child {
+  background: linear-gradient(90deg, currentColor, transparent);
+}
+
+.power-drain-panel > p {
+  margin: 0.25em 0 0;
+  color: rgba(255, 236, 188, 0.78);
+  font-size: clamp(0.4rem, 0.62vw, 0.64rem);
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.power-drain-readout {
+  display: grid;
+  width: 100%;
+  align-items: end;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: clamp(12px, 2.2vw, 32px);
+  margin-top: clamp(10px, 1.25vw, 18px);
+}
+
+.power-drain-team {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.power-drain-team > span {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.power-drain-team small {
+  overflow: hidden;
+  color: #91cfc8;
+  font-size: clamp(0.34rem, 0.53vw, 0.54rem);
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.power-drain-team strong {
+  color: #c8fff4;
+  font-size: clamp(0.72rem, 1.2vw, 1.2rem);
+  font-variant-numeric: tabular-nums;
+}
+
+.power-drain-team.is-enemy > span {
+  flex-direction: row-reverse;
+}
+
+.power-drain-team.is-enemy small,
+.power-drain-team.is-enemy strong {
+  color: #ff9d88;
+}
+
+.power-drain-bar {
+  --tower-power: 100%;
+  height: clamp(7px, 0.8vw, 11px);
+  padding: 2px;
+  border: 1px solid rgba(159, 233, 224, 0.38);
+  background: rgba(0, 0, 0, 0.48);
+  clip-path: polygon(4px 0, 100% 0, 100% 100%, 0 100%, 0 4px);
+}
+
+.power-drain-bar i {
+  display: block;
+  width: var(--tower-power);
+  height: 100%;
+  background: linear-gradient(90deg, #176d70, #49e1d3, #cbfff4);
+  box-shadow: 0 0 12px rgba(73, 225, 211, 0.55);
+  transition: width 80ms linear;
+}
+
+.power-drain-team.is-enemy .power-drain-bar i {
+  margin-left: auto;
+  background: linear-gradient(90deg, #ffd0c7, #ff826d, #8b2d23);
+  box-shadow: 0 0 12px rgba(255, 117, 91, 0.52);
+}
+
+.power-drain-team.is-lowest .power-drain-bar {
+  border-color: rgba(255, 200, 87, 0.9);
+  box-shadow: 0 0 15px rgba(255, 177, 55, 0.2);
+}
+
+.power-drain-countdown {
+  display: grid;
+  min-width: clamp(38px, 4.2vw, 58px);
+  justify-items: center;
+  padding: 0 0.35em;
+  border-inline: 1px solid rgba(255, 200, 87, 0.28);
+}
+
+.power-drain-countdown strong {
+  color: var(--amber);
+  font-size: clamp(1rem, 1.85vw, 1.9rem);
+  font-variant-numeric: tabular-nums;
+  line-height: 0.95;
+}
+
+.power-drain-countdown small {
+  margin-top: 0.35em;
+  color: rgba(255, 222, 151, 0.64);
+  font-size: clamp(0.3rem, 0.44vw, 0.45rem);
+  font-weight: 900;
+  letter-spacing: 0.14em;
+}
+
+.power-drain-overlay.is-critical {
+  background:
+    radial-gradient(circle at 50% 47%, rgba(255, 97, 52, 0.18), transparent 38%),
+    linear-gradient(180deg, rgba(33, 6, 1, 0.5), transparent 32%, transparent 68%, rgba(33, 6, 1, 0.44));
+}
+
+.power-drain-overlay.is-critical .power-drain-panel {
+  border-color: rgba(255, 116, 75, 0.92);
+  box-shadow: 0 0 50px rgba(255, 83, 40, 0.3), inset 0 0 36px rgba(255, 75, 35, 0.08);
+  animation: power-drain-critical 520ms ease-in-out infinite alternate;
+}
+
+.power-drain-overlay.is-warning .power-drain-bar i {
+  animation: power-drain-bar-prime 420ms ease-in-out infinite alternate;
+}
+
+.power-drain-preview-button {
+  position: absolute;
+  top: 8.6%;
+  right: 2.2%;
+  z-index: 27;
+  padding: 0.6em 1em;
+  border: 1px solid rgba(255, 200, 87, 0.68);
+  background: rgba(22, 13, 5, 0.9);
+  color: var(--amber);
+  font-size: clamp(0.4rem, 0.62vw, 0.62rem);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  cursor: pointer;
 }
 
 .result-rewards {
@@ -2155,6 +2423,26 @@ kbd {
   to { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes power-drain-arrive {
+  from { opacity: 0; transform: scaleX(0.82) translateY(-8px); }
+  to { opacity: 1; transform: scaleX(1) translateY(0); }
+}
+
+@keyframes power-drain-scan {
+  from { transform: translateY(-8px); }
+  to { transform: translateY(0); }
+}
+
+@keyframes power-drain-critical {
+  from { transform: scale(1); filter: brightness(1); }
+  to { transform: scale(1.012); filter: brightness(1.16); }
+}
+
+@keyframes power-drain-bar-prime {
+  from { opacity: 0.55; }
+  to { opacity: 1; }
+}
+
 @keyframes robot-lab-in {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
@@ -2174,6 +2462,29 @@ kbd {
 
   .match-clock span {
     display: none;
+  }
+
+  .match-clock span.series-clock-label {
+    display: block;
+    font-size: clamp(0.29rem, 0.7vw, 0.4rem);
+    letter-spacing: 0.035em;
+  }
+
+  .power-drain-overlay {
+    padding: 5% 15% 17%;
+  }
+
+  .power-drain-panel {
+    width: min(660px, 74vw);
+    padding: 1.2% 3.4%;
+  }
+
+  .power-drain-panel h2 {
+    font-size: clamp(1rem, 3.2vw, 1.55rem);
+  }
+
+  .power-drain-readout {
+    margin-top: 1.2%;
   }
 
   .command-rail {
@@ -2273,7 +2584,452 @@ kbd {
   }
 }
 
+/* Phone gameplay uses a dedicated portrait command dock. The battlefield/camera
+   owns the space above it; this block only reflows the existing HUD controls. */
 @media (orientation: portrait) and (max-width: 800px) {
+  html,
+  body,
+  #root,
+  .app-shell {
+    width: 100dvw;
+    height: 100dvh;
+  }
+
+  .game-frame {
+    width: 100dvw;
+    height: 100dvh;
+    aspect-ratio: auto;
+    border: 0;
+    clip-path: none;
+  }
+
+  .game-frame.is-battle {
+    --portrait-dock-height: clamp(118px, 21dvh, 144px);
+    --portrait-dock-bottom: max(8px, env(safe-area-inset-bottom, 0px));
+    /* 548 × 684 is the smallest undistorted crop containing the complete
+       deployment width and both Relay sprites. */
+    --portrait-arena-height: min(
+      calc(100dvh - var(--portrait-dock-height) - var(--portrait-dock-bottom) - 2px),
+      124.8175dvw
+    );
+  }
+
+  .game-frame.is-battle .game-canvas {
+    top: 0;
+    bottom: auto;
+    height: var(--portrait-arena-height) !important;
+  }
+
+  .match-header {
+    height: calc(54px + env(safe-area-inset-top, 0px));
+    padding-top: env(safe-area-inset-top, 0px);
+    grid-template-columns: minmax(0, 1fr) 112px minmax(0, 1fr);
+  }
+
+  .pilot {
+    height: 44px;
+    gap: 4px;
+    padding: 0 7px;
+  }
+
+  .pilot strong,
+  .match-points {
+    display: none;
+  }
+
+  .pilot-mark,
+  .score-node {
+    width: 30px;
+  }
+
+  .match-clock {
+    min-height: 52px;
+    padding: 5px 2px 4px;
+  }
+
+  .match-clock time {
+    font-size: 1.15rem;
+  }
+
+  .match-clock span,
+  .match-clock span.series-clock-label {
+    display: block;
+    max-width: 104px;
+    overflow: hidden;
+    font-size: 0.38rem;
+    letter-spacing: 0.035em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .rotate-gate {
+    display: none;
+  }
+
+  .hud-layer::before {
+    height: calc(100% - var(--portrait-arena-height));
+    background:
+      linear-gradient(rgba(40, 231, 210, 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(40, 231, 210, 0.035) 1px, transparent 1px),
+      linear-gradient(180deg, rgba(10, 24, 30, 0.995), rgba(4, 12, 16, 1));
+    background-size: 22px 22px, 22px 22px, auto;
+  }
+
+  .command-rail {
+    --mobile-dock-height: clamp(118px, 21dvh, 144px);
+    --mobile-preview-width: clamp(42px, 12.5vw, 52px);
+    right: max(8px, env(safe-area-inset-right, 0px));
+    bottom: max(8px, env(safe-area-inset-bottom, 0px));
+    left: max(8px, env(safe-area-inset-left, 0px));
+    height: var(--mobile-dock-height);
+    grid-template-columns: var(--mobile-preview-width) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) 24px;
+    column-gap: clamp(10px, 3.2vw, 14px);
+    row-gap: 0;
+  }
+
+  .cards {
+    grid-column: 2;
+    grid-row: 1;
+    gap: clamp(3px, 1.1vw, 5px);
+  }
+
+  .command-card-slot {
+    min-height: 0;
+  }
+
+  .command-card {
+    min-height: 44px;
+  }
+
+  .command-card-slot:hover,
+  .command-card-slot.is-selected {
+    transform: translateY(-2px);
+  }
+
+  .card-cost {
+    width: clamp(22px, 7vw, 28px);
+    font-size: clamp(0.62rem, 3.2vw, 0.82rem);
+  }
+
+  .command-card .card-tech,
+  .command-card .card-category,
+  .card-upgrade-badge,
+  .card-mastery-badge {
+    display: none;
+  }
+
+  .card-portrait {
+    top: 1%;
+    width: 98%;
+  }
+
+  .card-meta {
+    right: 2%;
+    bottom: 3%;
+    left: 2%;
+    padding-top: 22%;
+  }
+
+  .card-meta strong {
+    font-size: clamp(0.5rem, 2.5vw, 0.68rem);
+    letter-spacing: 0.035em;
+  }
+
+  .card-lab-button {
+    display: none;
+  }
+
+  .card-lab-label {
+    display: grid;
+    width: 30px;
+    min-height: 20px;
+    place-items: center;
+    border: 1px solid var(--card-accent);
+    background: rgba(3, 15, 19, 0.94);
+    box-shadow: 0 0 8px rgba(var(--card-accent-rgb), 0.2);
+    font-size: 0.48rem;
+  }
+
+  .next-card {
+    width: 100%;
+    height: clamp(64px, 18vw, 78px);
+    align-self: end;
+    grid-column: 1;
+    grid-row: 1 / 3;
+  }
+
+  .next-label {
+    top: 5%;
+    left: 6%;
+    font-size: clamp(0.38rem, 1.9vw, 0.5rem);
+    letter-spacing: 0.08em;
+  }
+
+  .next-cost {
+    position: absolute;
+    top: 4%;
+    right: 5%;
+    z-index: 5;
+    display: grid;
+    width: clamp(18px, 5.8vw, 23px);
+    aspect-ratio: 1;
+    place-items: center;
+    border: 1px solid var(--card-accent);
+    background: rgba(4, 16, 20, 0.96);
+    color: #effffc;
+    font-size: clamp(0.52rem, 2.6vw, 0.68rem);
+    font-weight: 900;
+  }
+
+  .next-card .next-tech,
+  .next-card .card-category,
+  .next-card-upgrade-badge,
+  .next-card-mastery-badge {
+    display: none;
+  }
+
+  .next-portrait,
+  .next-portrait.portrait-system,
+  .next-portrait.portrait-vault {
+    top: 8%;
+    width: 100%;
+  }
+
+  .next-meta {
+    right: 3%;
+    bottom: 4%;
+    left: 3%;
+    padding-top: 22%;
+  }
+
+  .next-meta strong {
+    font-size: clamp(0.44rem, 2.1vw, 0.58rem);
+    letter-spacing: 0.025em;
+  }
+
+  .charge-bank {
+    height: 24px;
+    grid-column: 2;
+    grid-row: 2;
+    grid-template-columns: minmax(72px, 26%) minmax(0, 1fr);
+    gap: 4px;
+    padding: 0 4px;
+  }
+
+  .charge-copy strong {
+    font-size: clamp(0.47rem, 2.2vw, 0.6rem);
+    letter-spacing: 0.07em;
+  }
+
+  .charge-copy > span {
+    font-size: clamp(0.75rem, 3.4vw, 0.95rem);
+  }
+
+  .charge-segments {
+    height: 58%;
+    gap: 2px;
+  }
+
+  .overdrive-control {
+    position: absolute;
+    top: -50px;
+    left: 50%;
+    width: min(132px, 42vw);
+    height: 44px;
+    min-height: 44px;
+    grid-column: auto;
+    grid-row: auto;
+    transform: translateX(-50%);
+  }
+
+  .overdrive-control:hover:not(:disabled) {
+    transform: translate(-50%, -2px);
+  }
+
+  .overdrive-portrait {
+    top: 1px;
+    left: 22px;
+    width: 42px;
+  }
+
+  .overdrive-cost {
+    top: 2px;
+    right: auto;
+    left: 33px;
+    width: 20px;
+    font-size: 0.58rem;
+  }
+
+  .overdrive-control > strong,
+  .overdrive-status {
+    right: 3px;
+    left: 47px;
+  }
+
+  .overdrive-control > strong {
+    bottom: 20px;
+    font-size: 0.52rem;
+    letter-spacing: 0.045em;
+  }
+
+  .overdrive-status {
+    bottom: 7px;
+    font-size: 0.38rem;
+    letter-spacing: 0.025em;
+  }
+
+  .utility-button {
+    top: min(
+      calc(var(--portrait-arena-height) + 16px),
+      calc(100dvh - var(--portrait-dock-bottom) - var(--portrait-dock-height) - 52px)
+    );
+    bottom: auto;
+    width: 44px;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .sound-button {
+    left: max(8px, env(safe-area-inset-left, 0px));
+  }
+
+  .pause-button {
+    right: max(8px, env(safe-area-inset-right, 0px));
+  }
+
+  .robot-stats-panel.is-lobby-lab {
+    top: max(12px, env(safe-area-inset-top, 0px));
+    right: max(8px, env(safe-area-inset-right, 0px));
+    bottom: max(12px, env(safe-area-inset-bottom, 0px));
+    left: max(8px, env(safe-area-inset-left, 0px));
+    width: auto;
+    height: auto;
+    min-width: 0;
+    min-height: 0;
+    grid-template-columns: 35% minmax(0, 1fr);
+    grid-template-rows: 112px 100px minmax(0, 1fr) 42px;
+    padding: 14px 12px 8px;
+    clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px);
+  }
+
+  .robot-stats-panel.is-lobby-lab .robot-lab-portrait,
+  .robot-stats-panel.is-lobby-lab .robot-lab-portrait.portrait-system,
+  .robot-stats-panel.is-lobby-lab .robot-lab-portrait.portrait-vault {
+    width: min(100%, 138px);
+    height: auto;
+    aspect-ratio: 1;
+  }
+
+  .robot-stats-panel.is-lobby-lab .robot-lab-identity {
+    align-self: center;
+    grid-column: 2;
+    grid-row: 1;
+    padding: 0 42px 0 8px;
+  }
+
+  .robot-stats-panel.is-lobby-lab .robot-lab-identity > span {
+    font-size: 0.55rem;
+  }
+
+  .robot-stats-panel.is-lobby-lab .robot-lab-identity h2 {
+    font-size: 0.78rem;
+  }
+
+  .robot-stats-panel.is-lobby-lab .robot-lab-identity p {
+    font-size: 0.46rem;
+    line-height: 1.35;
+    white-space: normal;
+  }
+
+  .robot-stats-panel.is-lobby-lab .robot-ability {
+    grid-column: 2;
+    grid-row: 2;
+    padding: 12px 8px;
+  }
+
+  .robot-stats-panel.is-lobby-lab .robot-ability > span {
+    font-size: 0.45rem;
+  }
+
+  .robot-stats-panel.is-lobby-lab .robot-ability strong {
+    font-size: 0.65rem;
+  }
+
+  .robot-stats-panel.is-lobby-lab .robot-ability p {
+    font-size: 0.46rem;
+    line-height: 1.4;
+    -webkit-line-clamp: 3;
+  }
+
+  .robot-stats-panel.is-lobby-lab .robot-stat-list {
+    grid-column: 1 / 3;
+    grid-row: 3;
+  }
+
+  .robot-stats-panel.is-lobby-lab .robot-stat-row {
+    grid-template-columns: 19% 13% 15% 13% minmax(0, 1fr);
+    gap: 3px;
+  }
+
+  .robot-stats-panel.is-lobby-lab .robot-stat-icon {
+    display: none;
+  }
+
+  .robot-stats-panel.is-lobby-lab .robot-stat-label {
+    padding-left: 6px;
+    font-size: 0.5rem;
+  }
+
+  .robot-stats-panel.is-lobby-lab .robot-stat-value {
+    font-size: 0.7rem;
+  }
+
+  .robot-stats-panel.is-lobby-lab .robot-stat-detail {
+    padding-left: 4px;
+    font-size: 0.4rem;
+  }
+
+  .robot-stats-panel.is-lobby-lab .robot-upgrade-actions {
+    height: 44px;
+  }
+
+  .robot-stats-panel.is-lobby-lab .robot-downgrade-button {
+    min-width: 34px;
+  }
+
+  .robot-stats-panel.is-lobby-lab .robot-upgrade-button {
+    min-width: 76px;
+    padding: 0 7px;
+  }
+
+  .robot-stats-panel.is-lobby-lab .robot-upgrade-button strong {
+    font-size: 0.5rem;
+  }
+
+  .robot-stats-panel.is-lobby-lab .robot-upgrade-button span {
+    font-size: 0.42rem;
+  }
+
+  .robot-stats-panel.is-lobby-lab .robot-lab-footer {
+    grid-column: 1 / 3;
+    grid-row: 4;
+    gap: 8px;
+    font-size: 0.38rem;
+    letter-spacing: 0.06em;
+    text-align: center;
+  }
+
+  .robot-stats-panel.is-lobby-lab .robot-lab-close {
+    top: 8px;
+    right: 8px;
+    width: 44px;
+    height: 44px;
+  }
+}
+
+/* A phone held sideways asks for portrait; desktop landscape remains untouched. */
+@media (orientation: landscape) and (max-height: 600px) and (pointer: coarse) {
   .rotate-gate {
     display: grid;
   }
