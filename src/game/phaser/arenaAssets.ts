@@ -43,11 +43,11 @@ export { getArenaBoardThemeForLevel } from '../core/levelMilestones';
 export type { ArenaBoardTheme } from '../core/levelMilestones';
 
 export const ARENA_BOARD_PATHS: Readonly<Record<ArenaBoardTheme, string>> = {
-  foundry: 'assets/game/arena-board-long.png',
-  sewer: 'assets/game/arena-board-sewer.png',
-  volcanic: 'assets/game/arena-board-volcanic.png',
-  orbital: 'assets/game/arena-board-orbital.png',
-  alien: 'assets/game/arena-board-alien.png',
+  foundry: 'assets/game/arena-board-long.webp',
+  sewer: 'assets/game/arena-board-sewer.webp',
+  volcanic: 'assets/game/arena-board-volcanic.webp',
+  orbital: 'assets/game/arena-board-orbital.webp',
+  alien: 'assets/game/arena-board-alien.webp',
 };
 
 const createCardSheetAsset = (sheet: SpriteSheet): ArenaSpriteSheetAsset => {
@@ -66,7 +66,7 @@ const BASE_ARENA_ASSETS: readonly ArenaAsset[] = [
   {
     type: 'spritesheet',
     key: 'tower-sprites',
-    path: 'assets/game/tower-sprites.png',
+    path: 'assets/game/tower-sprites.webp',
     frameWidth: 627,
     frameHeight: 627,
     endFrame: 3,
@@ -74,7 +74,7 @@ const BASE_ARENA_ASSETS: readonly ArenaAsset[] = [
   {
     type: 'spritesheet',
     key: 'relay-weapon-sprites',
-    path: 'assets/game/relay-weapon-sprites.png',
+    path: 'assets/game/relay-weapon-sprites.webp',
     frameWidth: 512,
     frameHeight: 512,
     endFrame: 2,
@@ -91,7 +91,7 @@ const BASE_ARENA_ASSETS: readonly ArenaAsset[] = [
   {
     type: 'spritesheet',
     key: 'combat-vfx-sprites',
-    path: 'assets/game/combat-vfx-sprites.png',
+    path: 'assets/game/combat-vfx-sprites.webp',
     frameWidth: 627,
     frameHeight: 627,
     endFrame: 3,
@@ -99,7 +99,7 @@ const BASE_ARENA_ASSETS: readonly ArenaAsset[] = [
   {
     type: 'spritesheet',
     key: ARENA_UNIT_ATLAS_KEY,
-    path: 'assets/game/arena-robot-move-sprites.png',
+    path: 'assets/game/arena-robot-move-sprites.webp',
     frameWidth: ARENA_UNIT_ATLAS_FRAME_SIZE,
     frameHeight: ARENA_UNIT_ATLAS_FRAME_SIZE,
     endFrame: ARENA_UNIT_ATLAS_FRAME_COUNT - 1,
@@ -109,7 +109,7 @@ const BASE_ARENA_ASSETS: readonly ArenaAsset[] = [
 const VAULT_UNIT_ASSET: ArenaSpriteSheetAsset = {
   type: 'spritesheet',
   key: VAULT_UNIT_ATLAS_KEY,
-  path: 'assets/game/vault-unit-sprites.png',
+  path: 'assets/game/vault-unit-sprites.webp',
   frameWidth: VAULT_UNIT_ATLAS_FRAME_WIDTH,
   frameHeight: VAULT_UNIT_ATLAS_FRAME_HEIGHT,
   endFrame: VAULT_UNIT_ATLAS_FRAME_COUNT - 1,

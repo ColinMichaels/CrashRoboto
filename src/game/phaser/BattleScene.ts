@@ -115,6 +115,7 @@ export class BattleScene extends Scene {
   constructor(
     private readonly bridge: GameBridge,
     private readonly playerLevel: number,
+    private readonly onReady?: () => void,
   ) {
     super('battle');
   }
@@ -203,6 +204,8 @@ export class BattleScene extends Scene {
     this.events.once('shutdown', cleanup);
     this.events.once('destroy', cleanup);
     this.syncPresentation();
+    // Remove the deployment cover only after the first complete scene sync.
+    this.onReady?.();
   }
 
   resizeArenaViewport(width: number, height: number): ArenaViewport {

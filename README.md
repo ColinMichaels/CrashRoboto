@@ -33,6 +33,12 @@ The deployed game is available at [https://colinmichaels.github.io/CrashRoboto/]
 
 GitHub Pages must serve the built output, not the repository root. If Pages serves the source `index.html`, the browser will request `/src/main.tsx` and fail because TypeScript source files are not a production bundle.
 
+## Loading and asset pipeline
+
+Crash Roboto opens behind a real startup loader instead of exposing partially decoded lobby art. Startup imports the command interface and Phaser runtime in parallel, decodes the visible lobby images, and warms the exact arena manifest for the saved deck and player level. Remaining arena skins, reward art, optional Vault textures, and battle music enter the browser cache during idle time.
+
+Deploying a changed loadout performs one final manifest check before the match starts. The deployment screen remains visible until Phaser finishes creating and synchronizing the battle scene, so the HUD and arena never appear half-loaded. Runtime game art uses WebP to reduce transfer size while editable PNG source files remain available in `public/assets/game/`.
+
 ## Controls
 
 - In the Command Lobby, choose a pilot and battle protocol, then select exactly eight unique command chips for your loadout.
@@ -117,7 +123,7 @@ For a reproducible local match, add a positive integer seed to the URL, such as 
 - `src/features/` contains pilot presentation, the Command Lobby, battle HUD, card presentation, progression/reward ownership, overlays, and Robot Lab.
 - `src/audio/` owns synthesized effects, music playback, and the bundled music manifest; `src/features/audio/` owns the player UI and session playlist importer.
 - `src/app/` composes the application, persists preferences/loadouts, and lazy-loads the Phaser battle bundle.
-- `public/assets/game/` contains shipped visual assets, while `public/assets/audio/music/` contains the bundled soundtrack. Early visual studies and the legacy flat board live in `docs/concepts/` so they are not copied into production builds.
+- `public/assets/game/` contains editable PNG sources and optimized WebP runtime assets, while `public/assets/audio/music/` contains the bundled soundtrack. Early visual studies and the legacy flat board live in `docs/concepts/` so they are not copied into production builds.
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for state ownership, runtime flow, and extension notes.
 See [`docs/AUDIO.md`](docs/AUDIO.md) for the Suno integration decision, playlist workflow, and sample-replacement plan.

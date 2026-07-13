@@ -33,11 +33,11 @@ describe('arena asset manifest', () => {
     const boardPath = (level: number) => getArenaAssetManifest(decks, level)
       .find((asset) => asset.key === 'arena-board')?.path;
 
-    expect(boardPath(1)).toBe('assets/game/arena-board-long.png');
-    expect(boardPath(6)).toBe('assets/game/arena-board-sewer.png');
-    expect(boardPath(11)).toBe('assets/game/arena-board-volcanic.png');
-    expect(boardPath(20)).toBe('assets/game/arena-board-orbital.png');
-    expect(boardPath(40)).toBe('assets/game/arena-board-alien.png');
+    expect(boardPath(1)).toBe('assets/game/arena-board-long.webp');
+    expect(boardPath(6)).toBe('assets/game/arena-board-sewer.webp');
+    expect(boardPath(11)).toBe('assets/game/arena-board-volcanic.webp');
+    expect(boardPath(20)).toBe('assets/game/arena-board-orbital.webp');
+    expect(boardPath(40)).toBe('assets/game/arena-board-alien.webp');
   });
 
   it('keeps portrait-only and inactive Vault textures out of a standard match', () => {

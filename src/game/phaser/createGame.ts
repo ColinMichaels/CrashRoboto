@@ -15,10 +15,15 @@ export interface ArenaGame {
   destroy(): void;
 }
 
-export function createGame(parent: HTMLElement, bridge: GameBridge, playerLevel: number): ArenaGame {
+export function createGame(
+  parent: HTMLElement,
+  bridge: GameBridge,
+  playerLevel: number,
+  onReady?: () => void,
+): ArenaGame {
   const initialBounds = parent.getBoundingClientRect();
   const initialViewport = createArenaViewport(initialBounds.width, initialBounds.height);
-  const scene = new BattleScene(bridge, playerLevel);
+  const scene = new BattleScene(bridge, playerLevel, onReady);
   let viewport = initialViewport;
   const game = new Game({
     type: AUTO,

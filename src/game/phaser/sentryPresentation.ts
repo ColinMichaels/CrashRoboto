@@ -1,5 +1,5 @@
 export const SENTRY_DIRECTION_ATLAS_KEY = 'sentry-directional-sprites';
-export const SENTRY_DIRECTION_ATLAS_PATH = 'assets/game/sentry-directional-sprites.png';
+export const SENTRY_DIRECTION_ATLAS_PATH = 'assets/game/sentry-directional-sprites.webp';
 export const SENTRY_DIRECTION_FRAME_SIZE = 384;
 export const SENTRY_DIRECTION_FRAME_COUNT = 8;
 
