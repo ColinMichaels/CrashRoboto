@@ -533,6 +533,7 @@ export function App() {
               <GameCanvas
                 ref={gameCanvasRef}
                 bridge={bridge}
+                playerLevel={playerLevel}
                 onViewportChange={() => { dragOriginRef.current = null; }}
               />
             </Suspense>

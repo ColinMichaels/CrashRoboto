@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import { getCardSpriteStyle } from '../cards/cardPresentation';
 import { CardCollectionPanel } from '../cards/CardCollectionPanel';
 import { getRobotUpgradeBadgeInfo, UpgradeBadge } from '../cards/UpgradeBadge';
@@ -35,6 +35,7 @@ import type {
 } from '../../game/core/types';
 import { RobotStatsDialog } from '../hud/RobotStatsDialog';
 import { PilotMark } from '../pilots/PilotMark';
+import { ProgressionTower } from '../progression/ProgressionTower';
 import './lobby.css';
 
 export interface LobbyProps {
@@ -316,10 +317,12 @@ export function Lobby({
   const pilotTriggerRef = useRef<HTMLButtonElement>(null);
   const labTriggerRef = useRef<HTMLButtonElement | null>(null);
   const collectionTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const progressionTriggerRef = useRef<HTMLButtonElement>(null);
   const [announcement, setAnnouncement] = useState('');
   const [pilotMenuOpen, setPilotMenuOpen] = useState(false);
   const [inspectedRobot, setInspectedRobot] = useState<RobotCardId | null>(null);
   const [inspectedCollectionCard, setInspectedCollectionCard] = useState<CardId | null>(null);
+  const [progressionOpen, setProgressionOpen] = useState(false);
   const deckFull = selectedDeck.length === DECK_SIZE;
   const currentLevelXp = getXpForLevel(playerLevel);
   const nextLevelXp = getXpForLevel(Math.min(MAX_PLAYER_LEVEL, playerLevel + 1));
@@ -332,6 +335,19 @@ export function Lobby({
     '--lobby-arena': `url("${import.meta.env.BASE_URL}assets/game/arena-board-long.png")`,
     '--tower-weapon-sprites': `url("${import.meta.env.BASE_URL}assets/game/relay-weapon-sprites.png")`,
   } as CSSProperties;
+
+  const closeProgression = useCallback(() => {
+    setProgressionOpen(false);
+    window.requestAnimationFrame(() => progressionTriggerRef.current?.focus({ preventScroll: true }));
+  }, []);
+
+  const openProgression = () => {
+    setPilotMenuOpen(false);
+    setInspectedRobot(null);
+    setInspectedCollectionCard(null);
+    setProgressionOpen(true);
+    setAnnouncement('Ascension Tower opened.');
+  };
 
   useEffect(() => {
     if (!pilotMenuOpen && !inspectedRobot && !inspectedCollectionCard) return undefined;
@@ -661,14 +677,19 @@ export function Lobby({
           <strong>{selectedDeck.length} / {DECK_SIZE}</strong>
           <span>CHIPS ONLINE</span>
         </div>
-        <div
+        <button
+          ref={progressionTriggerRef}
           className="lobby-average"
+          type="button"
+          onClick={openProgression}
+          aria-haspopup="dialog"
+          aria-expanded={progressionOpen}
           aria-label={`Player level ${playerLevel}. ${levelXp} of ${levelXpTarget} experience toward the next level. ${firmwareBudget - firmwareRemaining} of ${firmwareBudget} lobby firmware points allocated. Firmware capacity increases by one every two levels.`}
         >
-          <span className="lobby-metric is-level"><small>LEVEL</small><strong>{playerLevel}</strong></span>
+          <span className="lobby-metric is-level"><small>LEVEL PATH</small><strong>{playerLevel}</strong></span>
           <span className="lobby-metric is-xp"><small>XP TO NEXT</small><strong>{playerLevel === MAX_PLAYER_LEVEL ? 'MAX' : `${levelXp}/${levelXpTarget}`}</strong></span>
           <span className="lobby-metric is-firmware"><small>FIRMWARE · +1/2 LVL</small><strong>{firmwareBudget - firmwareRemaining}/{firmwareBudget}</strong></span>
-        </div>
+        </button>
         <button className="lobby-reset-button" type="button" onClick={resetLoadout}>
           <ResetIcon />
           RESET
@@ -711,6 +732,14 @@ export function Lobby({
           cardId={inspectedCollectionCard}
           entry={collection[inspectedCollectionCard]}
           onClose={closeCollectionIntel}
+        />
+      )}
+
+      {progressionOpen && (
+        <ProgressionTower
+          playerLevel={playerLevel}
+          playerXp={playerXp}
+          onClose={closeProgression}
         />
       )}
 

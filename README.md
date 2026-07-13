@@ -2,6 +2,8 @@
 
 Crash Roboto is a standalone real-time robot arena strategy game built with React, TypeScript, Vite, and Phaser. It uses original tech-themed boards, towers, robots, terminology, and generated production art.
 
+**Play online:** [Crash Roboto on GitHub Pages](https://colinmichaels.github.io/CrashRoboto/)
+
 ## Requirements
 
 - Node.js `^20.19.0` or `>=22.12.0`
@@ -26,6 +28,8 @@ The generated `dist/` directory can be hosted on any static web host.
 ## Deploy to GitHub Pages
 
 This repository includes a GitHub Actions workflow that builds the Vite app and publishes `dist/` to GitHub Pages on pushes to `master`. In the repository settings, set **Pages → Build and deployment → Source** to **GitHub Actions**.
+
+The deployed game is available at [https://colinmichaels.github.io/CrashRoboto/](https://colinmichaels.github.io/CrashRoboto/).
 
 GitHub Pages must serve the built output, not the repository root. If Pages serves the source `index.html`, the browser will request `/src/main.tsx` and fail because TypeScript source files are not a production bundle.
 

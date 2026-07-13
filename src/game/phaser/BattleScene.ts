@@ -112,13 +112,16 @@ export class BattleScene extends Scene {
   private arenaViewport = createArenaViewport(BOARD_WIDTH, BOARD_HEIGHT);
   private presentationReady = false;
 
-  constructor(private readonly bridge: GameBridge) {
+  constructor(
+    private readonly bridge: GameBridge,
+    private readonly playerLevel: number,
+  ) {
     super('battle');
   }
 
   preload(): void {
     const base = import.meta.env.BASE_URL;
-    for (const asset of getArenaAssetManifest(this.bridge.getSnapshot().decks)) {
+    for (const asset of getArenaAssetManifest(this.bridge.getSnapshot().decks, this.playerLevel)) {
       const path = `${base}${asset.path}`;
       if (asset.type === 'image') {
         this.load.image(asset.key, path);

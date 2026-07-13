@@ -1,4 +1,8 @@
 import { CARDS } from '../core/content';
+import {
+  getArenaBoardThemeForLevel,
+  type ArenaBoardTheme,
+} from '../core/levelMilestones';
 import { SPRITE_SHEETS } from '../core/spriteSheets';
 import type { CardId, MatchSnapshot, RobotKind, SpriteSheet } from '../core/types';
 import {
@@ -35,6 +39,17 @@ interface ArenaSpriteSheetAsset {
 
 export type ArenaAsset = ArenaImageAsset | ArenaSpriteSheetAsset;
 
+export { getArenaBoardThemeForLevel } from '../core/levelMilestones';
+export type { ArenaBoardTheme } from '../core/levelMilestones';
+
+export const ARENA_BOARD_PATHS: Readonly<Record<ArenaBoardTheme, string>> = {
+  foundry: 'assets/game/arena-board-long.png',
+  sewer: 'assets/game/arena-board-sewer.png',
+  volcanic: 'assets/game/arena-board-volcanic.png',
+  orbital: 'assets/game/arena-board-orbital.png',
+  alien: 'assets/game/arena-board-alien.png',
+};
+
 const createCardSheetAsset = (sheet: SpriteSheet): ArenaSpriteSheetAsset => {
   const metadata = SPRITE_SHEETS[sheet];
   return {
@@ -48,7 +63,6 @@ const createCardSheetAsset = (sheet: SpriteSheet): ArenaSpriteSheetAsset => {
 };
 
 const BASE_ARENA_ASSETS: readonly ArenaAsset[] = [
-  { type: 'image', key: 'arena-board', path: 'assets/game/arena-board-long.png' },
   {
     type: 'spritesheet',
     key: 'tower-sprites',
@@ -105,9 +119,16 @@ const isVaultUnit = (cardId: CardId): boolean => (
   (VAULT_UNIT_KINDS as readonly RobotKind[]).includes(cardId as RobotKind)
 );
 
-export function getArenaAssetManifest(decks: MatchSnapshot['decks']): readonly ArenaAsset[] {
+export function getArenaAssetManifest(
+  decks: MatchSnapshot['decks'],
+  playerLevel = 1,
+): readonly ArenaAsset[] {
   const activeCardIds = new Set<CardId>([...decks.player, ...decks.enemy]);
-  const assets = [...BASE_ARENA_ASSETS];
+  const boardTheme = getArenaBoardThemeForLevel(playerLevel);
+  const assets: ArenaAsset[] = [
+    { type: 'image', key: 'arena-board', path: ARENA_BOARD_PATHS[boardTheme] },
+    ...BASE_ARENA_ASSETS,
+  ];
   const optionalCardSheets = new Set<SpriteSheet>();
   for (const cardId of activeCardIds) {
     const card = CARDS[cardId];

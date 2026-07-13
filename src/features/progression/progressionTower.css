@@ -1,0 +1,748 @@
+.progression-tower-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  padding: 3.2% 17.5%;
+  place-items: center;
+  background: rgba(0, 6, 9, 0.82);
+  backdrop-filter: blur(3px) saturate(0.72);
+  animation: progression-overlay-in 180ms ease-out both;
+}
+
+.game-frame:has(.progression-tower-overlay) .music-player {
+  z-index: 11;
+  pointer-events: none;
+}
+
+.progression-tower-panel {
+  --tower-border: rgba(54, 232, 218, 0.76);
+  position: relative;
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: 8.4% 7.8% minmax(0, 1fr) 4.8%;
+  overflow: hidden;
+  border: 1px solid var(--tower-border);
+  background:
+    linear-gradient(90deg, rgba(20, 91, 91, 0.05) 1px, transparent 1px),
+    linear-gradient(rgba(20, 91, 91, 0.05) 1px, transparent 1px),
+    linear-gradient(150deg, rgba(8, 25, 31, 0.995), rgba(1, 10, 14, 0.995));
+  background-size: 34px 34px, 34px 34px, auto;
+  box-shadow:
+    0 28px 80px rgba(0, 0, 0, 0.72),
+    inset 0 0 0 1px rgba(219, 255, 251, 0.045),
+    inset 0 0 70px rgba(1, 6, 10, 0.5);
+  clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 14px, 100% calc(100% - 14px), calc(100% - 14px) 100%, 14px 100%, 0 calc(100% - 14px), 0 14px);
+  animation: progression-panel-in 220ms cubic-bezier(0.2, 0.9, 0.25, 1) both;
+}
+
+.progression-tower-panel::before,
+.progression-tower-panel::after {
+  position: absolute;
+  z-index: 5;
+  width: 28px;
+  height: 28px;
+  border-color: #83fff4;
+  content: "";
+  pointer-events: none;
+}
+
+.progression-tower-panel::before {
+  top: 7px;
+  left: 7px;
+  border-top: 2px solid;
+  border-left: 2px solid;
+}
+
+.progression-tower-panel::after {
+  right: 7px;
+  bottom: 7px;
+  border-right: 2px solid;
+  border-bottom: 2px solid;
+}
+
+.progression-tower-header {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  min-width: 0;
+  align-items: center;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 2.2%;
+  margin: 0 2.6%;
+  border-bottom: 1px solid rgba(97, 214, 206, 0.22);
+}
+
+.progression-tower-header h2 {
+  margin: 0;
+  color: #edf8f7;
+  font-size: clamp(0.78rem, 1.55vw, 1.5rem);
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  line-height: 1;
+  text-shadow: 0 3px 14px rgba(0, 0, 0, 0.7);
+}
+
+.progression-tower-icon {
+  width: clamp(22px, 2.3vw, 36px);
+  fill: none;
+  stroke: #54dcd2;
+  stroke-linecap: square;
+  stroke-linejoin: bevel;
+  stroke-width: 2.5;
+}
+
+.progression-tower-header button {
+  display: grid;
+  width: clamp(28px, 2.7vw, 42px);
+  aspect-ratio: 1;
+  padding: 0;
+  place-items: center;
+  border: 1px solid rgba(156, 223, 217, 0.42);
+  background: rgba(10, 25, 31, 0.88);
+  color: #c7d8d6;
+  cursor: pointer;
+  clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+}
+
+.progression-tower-header button:hover,
+.progression-tower-header button:focus-visible {
+  border-color: var(--cyan);
+  color: var(--mint);
+  background: rgba(25, 95, 94, 0.26);
+}
+
+.progression-tower-header button svg {
+  width: 55%;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: square;
+  stroke-width: 1.7;
+}
+
+.progression-tower-xp {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  min-width: 0;
+  align-items: center;
+  grid-template-columns: auto auto minmax(120px, 1fr);
+  gap: 5%;
+  padding: 0 6%;
+  border-bottom: 1px solid rgba(80, 185, 179, 0.18);
+  background: rgba(2, 12, 16, 0.58);
+}
+
+.progression-tower-xp strong {
+  color: var(--cyan);
+  font-size: clamp(0.62rem, 1.2vw, 1.16rem);
+  font-weight: 900;
+  letter-spacing: 0.11em;
+  white-space: nowrap;
+}
+
+.progression-tower-xp span {
+  color: #d7e7e5;
+  font-size: clamp(0.38rem, 0.64vw, 0.64rem);
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.11em;
+  white-space: nowrap;
+}
+
+.progression-tower-xp i {
+  height: clamp(6px, 0.72vw, 11px);
+  overflow: hidden;
+  border: 1px solid rgba(164, 211, 207, 0.34);
+  background: rgba(1, 7, 10, 0.92);
+  clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px);
+}
+
+.progression-tower-xp i b {
+  display: block;
+  width: var(--tower-xp-progress);
+  height: 100%;
+  background: linear-gradient(90deg, #159c98, #57eee1);
+  box-shadow: 0 0 12px rgba(40, 231, 210, 0.56);
+  transition: width 480ms ease-out;
+}
+
+.progression-tower-body {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr) 29%;
+}
+
+.progression-timeline {
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-color: rgba(40, 231, 210, 0.5) rgba(3, 13, 17, 0.55);
+  scrollbar-width: thin;
+  overscroll-behavior: contain;
+}
+
+.progression-timeline::-webkit-scrollbar {
+  width: 7px;
+}
+
+.progression-timeline::-webkit-scrollbar-track {
+  background: rgba(3, 13, 17, 0.55);
+}
+
+.progression-timeline::-webkit-scrollbar-thumb {
+  background: rgba(40, 231, 210, 0.5);
+}
+
+.progression-timeline-inner {
+  position: relative;
+  min-height: 100%;
+  padding: 1.25% 3.5%;
+}
+
+.progression-level-row {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: clamp(46px, 4.4vw, 68px);
+  align-items: center;
+  grid-template-columns: minmax(0, 1fr) clamp(44px, 4.6vw, 70px) minmax(0, 1fr);
+}
+
+.progression-level-row.has-milestone {
+  min-height: clamp(52px, 3.6vw, 58px);
+}
+
+.progression-level-row::before {
+  position: absolute;
+  top: -50%;
+  bottom: -50%;
+  left: 50%;
+  width: 2px;
+  background: rgba(86, 126, 126, 0.34);
+  box-shadow: 0 0 0 4px rgba(27, 71, 72, 0.07);
+  content: "";
+  transform: translateX(-50%);
+}
+
+.progression-level-row:first-child::before {
+  top: 50%;
+}
+
+.progression-level-row:last-child::before {
+  bottom: 50%;
+}
+
+.progression-level-row.is-complete::before,
+.progression-level-row.is-current::before {
+  background: #41d9cf;
+  box-shadow: 0 0 8px rgba(40, 231, 210, 0.55), 0 0 0 4px rgba(27, 104, 101, 0.12);
+}
+
+.progression-node-column {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+}
+
+.progression-level-node {
+  display: grid;
+  width: clamp(26px, 2.5vw, 39px);
+  aspect-ratio: 1;
+  place-items: center;
+  border: 1px solid #526d6c;
+  background: linear-gradient(145deg, #14252a, #071116);
+  color: #809997;
+  font-size: clamp(0.42rem, 0.65vw, 0.65rem);
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  clip-path: polygon(28% 0, 72% 0, 100% 28%, 100% 72%, 72% 100%, 28% 100%, 0 72%, 0 28%);
+}
+
+.progression-level-row.is-complete .progression-level-node {
+  border-color: #36b9b1;
+  color: #c0f5ef;
+  background: linear-gradient(145deg, #12363a, #06161a);
+}
+
+.progression-level-row.is-current .progression-level-node {
+  width: clamp(42px, 4vw, 62px);
+  border: 3px solid #7dfff4;
+  background: #0e6e6b;
+  color: #f2fffd;
+  font-size: clamp(0.68rem, 1vw, 1rem);
+  box-shadow:
+    0 0 0 5px rgba(40, 231, 210, 0.13),
+    0 0 19px rgba(40, 231, 210, 0.64),
+    inset 0 0 12px rgba(184, 255, 248, 0.2);
+}
+
+.progression-reward {
+  position: relative;
+  z-index: 2;
+  min-width: 0;
+}
+
+.progression-reward.is-left {
+  padding-right: 4%;
+}
+
+.progression-reward.is-right {
+  padding-left: 4%;
+}
+
+.progression-milestone {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  align-items: center;
+  gap: 5%;
+  padding: 4% 5%;
+  border: 1px solid rgba(127, 174, 172, 0.38);
+  background: linear-gradient(120deg, rgba(16, 36, 42, 0.96), rgba(4, 14, 18, 0.94));
+  color: #d7e4e2;
+  clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+}
+
+.progression-milestone.has-board {
+  grid-template-columns: 38% minmax(0, 1fr);
+  padding: 2%;
+  border-color: rgba(45, 211, 201, 0.62);
+}
+
+.progression-milestone img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border: 1px solid rgba(67, 223, 212, 0.5);
+  filter: saturate(0.88) contrast(1.05) brightness(0.82);
+  clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+}
+
+.progression-milestone span {
+  display: grid;
+  min-width: 0;
+  gap: 0.38em;
+}
+
+.progression-milestone strong,
+.progression-next-unlock strong {
+  color: var(--amber);
+  font-size: clamp(0.34rem, 0.56vw, 0.56rem);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  line-height: 1.15;
+}
+
+.progression-milestone small {
+  color: var(--cyan);
+  font-size: clamp(0.27rem, 0.43vw, 0.44rem);
+  font-weight: 900;
+  letter-spacing: 0.1em;
+}
+
+.progression-milestone em {
+  color: #a5b9b6;
+  font-size: clamp(0.25rem, 0.4vw, 0.4rem);
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.progression-reward.is-left .progression-milestone::after,
+.progression-reward.is-right .progression-milestone::before,
+.progression-current-label::before {
+  position: absolute;
+  top: 50%;
+  width: 12%;
+  height: 1px;
+  background: rgba(117, 177, 174, 0.58);
+  content: "";
+}
+
+.progression-reward.is-left .progression-milestone::after {
+  right: -12%;
+}
+
+.progression-reward.is-right .progression-milestone::before {
+  left: -12%;
+}
+
+.progression-current-label {
+  position: relative;
+  display: inline-flex;
+  min-height: clamp(26px, 2.6vw, 40px);
+  align-items: center;
+  padding: 0 11%;
+  border: 1px solid #67f9ec;
+  background: linear-gradient(90deg, rgba(10, 81, 80, 0.88), rgba(7, 38, 42, 0.94));
+  color: #b7fff8;
+  font-size: clamp(0.32rem, 0.52vw, 0.54rem);
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  white-space: nowrap;
+  clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+  box-shadow: 0 0 13px rgba(40, 231, 210, 0.2);
+}
+
+.progression-current-label::before {
+  left: -12%;
+}
+
+.progression-tower-summary {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  align-content: start;
+  gap: 4.5%;
+  overflow-y: auto;
+  padding: 7% 8%;
+  border-left: 1px solid rgba(91, 203, 195, 0.2);
+  background: rgba(2, 11, 15, 0.7);
+}
+
+.progression-tower-summary h3 {
+  margin: 0;
+  color: #45dcd2;
+  font-size: clamp(0.36rem, 0.64vw, 0.64rem);
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  line-height: 1.25;
+}
+
+.progression-current-arena {
+  display: grid;
+  justify-items: center;
+  gap: clamp(5px, 0.6vw, 9px);
+}
+
+.progression-current-arena h3 {
+  width: 100%;
+}
+
+.progression-current-arena img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  margin-top: 2%;
+  object-fit: cover;
+  border: 1px solid var(--cyan);
+  filter: saturate(0.86) contrast(1.04) brightness(0.8);
+  clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+}
+
+.progression-current-arena > strong {
+  color: var(--amber);
+  font-size: clamp(0.42rem, 0.72vw, 0.72rem);
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-align: center;
+}
+
+.progression-current-arena > span,
+.progression-arena-count {
+  color: #45dcd2;
+  font-size: clamp(0.28rem, 0.45vw, 0.45rem);
+  font-weight: 900;
+  letter-spacing: 0.11em;
+  text-align: center;
+}
+
+.progression-capacity {
+  display: grid;
+  align-items: center;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 7%;
+  padding: 7% 2%;
+  border-top: 1px solid rgba(94, 173, 169, 0.22);
+  border-bottom: 1px solid rgba(94, 173, 169, 0.22);
+}
+
+.progression-firmware-icon {
+  width: clamp(29px, 3vw, 46px);
+  fill: none;
+  stroke: var(--cyan);
+  stroke-linecap: square;
+  stroke-linejoin: bevel;
+  stroke-width: 1.7;
+}
+
+.progression-capacity > span,
+.progression-next-unlock div > span {
+  display: grid;
+  min-width: 0;
+  gap: 0.48em;
+}
+
+.progression-capacity strong {
+  color: var(--cyan);
+  font-size: clamp(0.32rem, 0.54vw, 0.56rem);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  line-height: 1.3;
+}
+
+.progression-capacity small,
+.progression-next-unlock small,
+.progression-next-unlock p {
+  margin: 0;
+  color: #94aaa7;
+  font-size: clamp(0.27rem, 0.42vw, 0.43rem);
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.progression-next-unlock {
+  display: grid;
+  gap: clamp(8px, 1vw, 14px);
+}
+
+.progression-next-unlock > div {
+  display: grid;
+  align-items: center;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 7%;
+}
+
+.progression-next-unlock .progression-firmware-icon {
+  stroke: var(--amber);
+}
+
+.progression-next-unlock img {
+  width: clamp(46px, 5.2vw, 80px);
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border: 1px solid var(--amber);
+}
+
+.progression-arena-count {
+  align-self: end;
+  margin-top: auto;
+  padding-top: 5%;
+  border-top: 1px solid rgba(94, 173, 169, 0.16);
+}
+
+.progression-tower-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1em;
+  border-top: 1px solid rgba(91, 203, 195, 0.14);
+  color: #4bcfc6;
+  font-size: clamp(0.25rem, 0.4vw, 0.4rem);
+  font-weight: 900;
+  letter-spacing: 0.15em;
+}
+
+.progression-tower-footer kbd {
+  padding: 0.32em 0.7em;
+  border: 1px solid rgba(179, 218, 214, 0.5);
+  background: #071419;
+  color: #d8e7e5;
+  font: inherit;
+  letter-spacing: 0.08em;
+  box-shadow: inset 0 -2px rgba(0, 0, 0, 0.48);
+}
+
+@keyframes progression-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes progression-panel-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (max-width: 900px), (max-height: 520px) {
+  .progression-tower-overlay {
+    padding: 2.1% 7%;
+  }
+
+  .progression-tower-panel {
+    grid-template-rows: 10% 9% minmax(0, 1fr) 5%;
+  }
+
+  .progression-level-row {
+    min-height: 42px;
+  }
+
+  .progression-level-row.has-milestone {
+    min-height: 69px;
+  }
+}
+
+@media (orientation: portrait) and (max-width: 800px) {
+  .progression-tower-overlay {
+    position: fixed;
+    z-index: 140;
+    display: block;
+    overflow-y: auto;
+    padding: 0;
+    background: #02090d;
+  }
+
+  .progression-tower-panel {
+    width: 100%;
+    height: auto;
+    min-height: 100%;
+    grid-template-rows: 64px 62px auto 42px;
+    overflow: visible;
+    clip-path: none;
+  }
+
+  .progression-tower-header {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    margin: 0 14px;
+    padding: 0 2px;
+    background: rgba(3, 13, 17, 0.985);
+  }
+
+  .progression-tower-header h2 {
+    font-size: 0.9rem;
+  }
+
+  .progression-tower-xp {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    gap: 5px 14px;
+    padding: 8px 16px;
+  }
+
+  .progression-tower-xp strong {
+    font-size: 0.66rem;
+  }
+
+  .progression-tower-xp span {
+    justify-self: end;
+    font-size: 0.42rem;
+  }
+
+  .progression-tower-xp i {
+    height: 8px;
+    grid-column: 1 / -1;
+  }
+
+  .progression-tower-body {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .progression-timeline {
+    order: 2;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .progression-tower-summary {
+    order: 1;
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+    gap: 12px;
+    overflow: visible;
+    padding: 16px;
+    border-bottom: 1px solid rgba(91, 203, 195, 0.2);
+    border-left: 0;
+  }
+
+  .progression-current-arena {
+    grid-row: 1 / 3;
+  }
+
+  .progression-capacity {
+    padding: 8px 0;
+    border-top: 0;
+  }
+
+  .progression-next-unlock {
+    gap: 7px;
+  }
+
+  .progression-arena-count {
+    display: none;
+  }
+
+  .progression-timeline-inner {
+    padding: 18px 10px 24px;
+  }
+
+  .progression-level-row {
+    min-height: 54px;
+    grid-template-columns: minmax(0, 1fr) 48px minmax(0, 1fr);
+  }
+
+  .progression-level-row.has-milestone {
+    min-height: 98px;
+  }
+
+  .progression-milestone {
+    padding: 7px;
+  }
+
+  .progression-milestone.has-board {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .progression-milestone strong {
+    font-size: 0.5rem;
+  }
+
+  .progression-milestone small {
+    font-size: 0.38rem;
+  }
+
+  .progression-milestone em {
+    font-size: 0.34rem;
+    line-height: 1.4;
+  }
+
+  .progression-current-label {
+    min-height: 32px;
+    padding: 0 8px;
+    font-size: 0.34rem;
+    letter-spacing: 0.08em;
+  }
+
+  .progression-tower-summary h3 {
+    font-size: 0.46rem;
+  }
+
+  .progression-current-arena > strong {
+    font-size: 0.5rem;
+  }
+
+  .progression-current-arena > span {
+    font-size: 0.34rem;
+  }
+
+  .progression-capacity strong,
+  .progression-next-unlock strong {
+    font-size: 0.42rem;
+  }
+
+  .progression-capacity small,
+  .progression-next-unlock small {
+    font-size: 0.34rem;
+    line-height: 1.4;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progression-tower-overlay,
+  .progression-tower-panel {
+    animation: none;
+  }
+
+  .progression-tower-xp i b {
+    transition: none;
+  }
+}
