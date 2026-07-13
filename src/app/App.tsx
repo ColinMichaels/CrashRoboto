@@ -3,8 +3,10 @@ import { MusicEngine } from '../audio/MusicEngine';
 import { SoundEngine } from '../audio/SoundEngine';
 import { DEFAULT_SFX_VOLUME, parseAudioVolumePreference } from '../audio/audioVolume';
 import {
+  getBundledLobbyMusicPlaylist,
   getBundledMusicPlaylist,
   parseMusicVolumePreference,
+  type MusicTrack,
 } from '../audio/musicCatalog';
 import { GameBridge } from '../game/bridge/GameBridge';
 import type {
@@ -53,7 +55,8 @@ const MUSIC_MUTE_STORAGE_KEY = 'crash-roboto-music-muted';
 const MUSIC_VOLUME_STORAGE_KEY = 'crash-roboto-music-volume';
 const SFX_VOLUME_STORAGE_KEY = 'crash-roboto-sfx-volume';
 const TUTORIAL_STORAGE_KEY = 'crash-roboto-tutorial-complete';
-const BUNDLED_MUSIC_PLAYLIST = getBundledMusicPlaylist();
+const BATTLE_MUSIC_PLAYLIST = getBundledMusicPlaylist();
+const LOBBY_MUSIC_PLAYLIST = getBundledLobbyMusicPlaylist();
 const POWER_DRAIN_PREVIEW_ENABLED = import.meta.env.DEV &&
   new URLSearchParams(window.location.search).get('preview') === 'power-drain';
 
@@ -82,7 +85,7 @@ function readSeed() {
 export function App() {
   const bridge = useMemo(() => new GameBridge(readSeed()), []);
   const sound = useMemo(() => new SoundEngine({ volume: readSfxVolume() }), []);
-  const music = useMemo(() => new MusicEngine(BUNDLED_MUSIC_PLAYLIST, { volume: readMusicVolume() }), []);
+  const music = useMemo(() => new MusicEngine(LOBBY_MUSIC_PLAYLIST, { volume: readMusicVolume() }), []);
   const snapshot = useGameSnapshot(bridge);
   const gameCanvasRef = useRef<GameCanvasHandle>(null);
   const dragOriginRef = useRef<{ cardId: CardId; x: number; y: number } | null>(null);
@@ -103,7 +106,8 @@ export function App() {
   const [lobbyLoadout, setLobbyLoadout] = useState(readLobbyLoadout);
   const tutorialFirmwareBaselineRef = useRef(0);
   const snapshotRef = useRef(snapshot);
-  const inspectedRobotRef = useRef(inspectedRobot);
+  const previousPhaseRef = useRef(snapshot.phase);
+  const resumeMusicAfterPauseRef = useRef(false);
   const firmwareSpent = useMemo(
     () => ROBOT_CARD_IDS.reduce((total, robotId) => {
       const upgrades = lobbyLoadout.upgrades[robotId];
@@ -114,9 +118,9 @@ export function App() {
   const playerLevel = getPlayerLevel(playerProgress.xp);
   const firmwareBudget = getFirmwareBudgetForLevel(playerLevel);
   const firmwareRemaining = Math.max(0, firmwareBudget - firmwareSpent);
+  const audioMuted = sfxMuted && musicMuted;
 
   snapshotRef.current = snapshot;
-  inspectedRobotRef.current = inspectedRobot;
 
   const dispatch = useCallback((command: GameCommand) => bridge.dispatch(command), [bridge]);
   const select = useCallback((cardId: CardId) => {
@@ -130,12 +134,28 @@ export function App() {
 
   const toggleMusicMute = useCallback(() => {
     const phase = snapshotRef.current.phase;
-    if (
-      musicMuted &&
-      (phase === 'playing' || phase === 'paused' || phase === 'resolving' || phase === 'round-ended')
-    ) void music.play();
+    if (musicMuted) {
+      if (phase === 'paused') resumeMusicAfterPauseRef.current = true;
+      else if (phase === 'menu' || phase === 'playing' || phase === 'resolving' || phase === 'round-ended') {
+        void music.play();
+      }
+    }
     setMusicMuted((current) => !current);
   }, [music, musicMuted]);
+
+  const toggleAudioMute = useCallback(() => {
+    const nextMuted = !(sfxMuted && musicMuted);
+    if (!nextMuted) {
+      sound.unlock();
+      const phase = snapshotRef.current.phase;
+      if (phase === 'paused') resumeMusicAfterPauseRef.current = true;
+      else if (phase === 'menu' || phase === 'playing' || phase === 'resolving' || phase === 'round-ended') {
+        void music.play();
+      }
+    }
+    setSfxMuted(nextMuted);
+    setMusicMuted(nextMuted);
+  }, [music, musicMuted, sfxMuted, sound]);
 
   const changeMusicVolume = useCallback((volume: number) => {
     music.setVolume(volume);
@@ -234,6 +254,13 @@ export function App() {
     setLobbyLoadout(resetLobbyLoadout());
   }, [sound]);
 
+  const startMusicPlaylist = useCallback((playlist: readonly MusicTrack[]) => {
+    resumeMusicAfterPauseRef.current = false;
+    music.pause();
+    music.setPlaylist(playlist);
+    if (!musicMuted) void music.play();
+  }, [music, musicMuted]);
+
   const launchMatch = useCallback(() => {
     if (
       lobbyLoadout.deck.length !== DECK_SIZE ||
@@ -241,7 +268,7 @@ export function App() {
     ) return;
     saveLobbyLoadout(lobbyLoadout);
     clearMatchRewards();
-    if (!musicMuted) void music.play();
+    startMusicPlaylist(BATTLE_MUSIC_PLAYLIST);
     dispatch({
       type: 'start',
       config: {
@@ -254,7 +281,7 @@ export function App() {
       },
     });
     if (tutorialStep === 'launch') setTutorialStep('select');
-  }, [cardCollection, clearMatchRewards, dispatch, firmwareBudget, lobbyLoadout, music, musicMuted, tutorialStep]);
+  }, [cardCollection, clearMatchRewards, dispatch, firmwareBudget, lobbyLoadout, startMusicPlaylist, tutorialStep]);
 
   const startTutorial = useCallback(() => {
     tutorialFirmwareBaselineRef.current = firmwareSpent;
@@ -272,15 +299,17 @@ export function App() {
     dragOriginRef.current = null;
     setInspectedRobot(null);
     clearMatchRewards();
+    startMusicPlaylist(LOBBY_MUSIC_PLAYLIST);
     dispatch({ type: 'returnToLobby' });
-  }, [clearMatchRewards, dispatch]);
+  }, [clearMatchRewards, dispatch, startMusicPlaylist]);
 
   const restartMatch = useCallback(() => {
     dragOriginRef.current = null;
     setInspectedRobot(null);
     clearMatchRewards();
+    startMusicPlaylist(BATTLE_MUSIC_PLAYLIST);
     dispatch({ type: 'restart' });
-  }, [clearMatchRewards, dispatch]);
+  }, [clearMatchRewards, dispatch, startMusicPlaylist]);
 
   const nextRound = useCallback(() => {
     dragOriginRef.current = null;
@@ -339,6 +368,40 @@ export function App() {
     music.setMuted(musicMuted);
     writeStorageItem(MUSIC_MUTE_STORAGE_KEY, String(musicMuted));
   }, [music, musicMuted]);
+  useEffect(() => {
+    const previousPhase = previousPhaseRef.current;
+    previousPhaseRef.current = snapshot.phase;
+
+    if (snapshot.phase === 'ended' && previousPhase !== 'ended') {
+      resumeMusicAfterPauseRef.current = false;
+      music.stop();
+      return;
+    }
+
+    if (
+      snapshot.phase === 'menu' &&
+      previousPhase !== 'menu' &&
+      music.getSnapshot().currentTrack?.id !== LOBBY_MUSIC_PLAYLIST[0]?.id
+    ) {
+      startMusicPlaylist(LOBBY_MUSIC_PLAYLIST);
+      return;
+    }
+
+    if (snapshot.phase === 'paused' && previousPhase !== 'paused') {
+      resumeMusicAfterPauseRef.current = music.getSnapshot().isPlaying;
+      music.pause();
+      sound.pause();
+      return;
+    }
+
+    if (previousPhase === 'paused' && snapshot.phase !== 'paused') {
+      sound.resume();
+      if (snapshot.phase === 'playing' && resumeMusicAfterPauseRef.current && !musicMuted) {
+        void music.play();
+      }
+      resumeMusicAfterPauseRef.current = false;
+    }
+  }, [music, musicMuted, snapshot.phase, sound, startMusicPlaylist]);
   useEffect(() => bridge.subscribeToEvents((event) => sound.playEvent(event)), [bridge, sound]);
   useEffect(() => saveLobbyLoadout(lobbyLoadout), [lobbyLoadout]);
   useEffect(() => {
@@ -393,24 +456,26 @@ export function App() {
         if (cardId) {
           dispatch({ type: 'select', cardId: currentSnapshot.selected === cardId ? null : cardId });
         }
-      } else if (event.key === 'Escape') {
-        if (inspectedRobotRef.current) closeRobotStats();
-        else dispatch({ type: 'select', cardId: null });
+      } else if (
+        event.key === 'Escape' &&
+        (currentSnapshot.phase === 'playing' || currentSnapshot.phase === 'paused')
+      ) {
+        event.preventDefault();
+        togglePause();
       } else if (
         event.key.toLowerCase() === 'p' &&
         (currentSnapshot.phase === 'playing' || currentSnapshot.phase === 'paused')
       ) {
         togglePause();
       } else if (event.key.toLowerCase() === 'm') {
-        if (event.shiftKey) toggleSfxMute();
-        else toggleMusicMute();
+        toggleAudioMute();
       } else if (event.key.toLowerCase() === 'r' && currentSnapshot.phase === 'ended') {
         restartMatch();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [closeRobotStats, dispatch, restartMatch, toggleMusicMute, togglePause, toggleSfxMute]);
+  }, [dispatch, restartMatch, toggleAudioMute, togglePause]);
 
   useEffect(() => {
     if (!import.meta.env.DEV) return;
@@ -461,8 +526,6 @@ export function App() {
             onReset={resetLoadout}
             onPrepareLaunch={prepareArena}
             onLaunch={launchMatch}
-            sfxMuted={sfxMuted}
-            onToggleSfxMute={toggleSfxMute}
           />
         ) : (
           <>
@@ -476,7 +539,6 @@ export function App() {
             <Hud
               snapshot={snapshot}
               pilotId={lobbyLoadout.pilotId}
-              sfxMuted={sfxMuted}
               onSelect={select}
               onBeginDrag={(cardId, x, y) => { dragOriginRef.current = { cardId, x, y }; }}
               onCancelDrag={() => { dragOriginRef.current = null; }}
@@ -486,7 +548,6 @@ export function App() {
               onUpgradeRobot={(robotId: RobotCardId, stat: UpgradeStat) => dispatch({ type: 'upgradeRobot', team: 'player', robotId, stat })}
               onActivateOverdrive={() => dispatch({ type: 'activateOverdrive', team: 'player' })}
               onTogglePause={togglePause}
-              onToggleSfxMute={toggleSfxMute}
               blocked={snapshot.phase !== 'playing'}
             />
             <GameOverlay
@@ -503,10 +564,14 @@ export function App() {
         )}
         <MusicPlayer
           engine={music}
-          bundledPlaylist={BUNDLED_MUSIC_PLAYLIST}
-          muted={musicMuted}
+          bundledPlaylist={snapshot.phase === 'menu' ? LOBBY_MUSIC_PLAYLIST : BATTLE_MUSIC_PLAYLIST}
+          audioMuted={audioMuted}
+          musicMuted={musicMuted}
+          sfxMuted={sfxMuted}
           sfxVolume={sfxVolume}
-          onToggleMute={toggleMusicMute}
+          onToggleAudioMute={toggleAudioMute}
+          onToggleMusicMute={toggleMusicMute}
+          onToggleSfxMute={toggleSfxMute}
           onVolumeChange={changeMusicVolume}
           onSfxVolumeChange={changeSfxVolume}
         />

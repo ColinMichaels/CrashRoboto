@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_MUSIC_VOLUME,
+  getBundledLobbyMusicPlaylist,
   getTrackTitleFromFilename,
   parseMusicVolumePreference,
 } from './musicCatalog';
@@ -31,5 +32,15 @@ describe('music catalog helpers', () => {
 
   it('turns exported audio filenames into readable track titles', () => {
     expect(getTrackTitleFromFilename('neon_grid-final_mix.mp3')).toBe('neon grid final mix');
+  });
+
+  it('provides the dedicated looping lobby track', () => {
+    expect(getBundledLobbyMusicPlaylist('/game')).toEqual([
+      expect.objectContaining({
+        id: 'crash-roboto-lobby-entrance',
+        src: '/game/assets/audio/music/crash-roboto-lobby-entrance.mp3',
+        source: 'bundled',
+      }),
+    ]);
   });
 });

@@ -1020,8 +1020,8 @@ describe('MatchEngine', () => {
     const engine = new MatchEngine();
     engine.dispatch({ type: 'start' });
 
-    expect(engine.dispatch({ type: 'playCard', team: 'player', cardId: 'zip', x: 800, y: 625 })).toBe(true);
-    expect(engine.getSnapshot().units.at(-1)).toMatchObject({ team: 'player', x: 800, y: 625 });
+    expect(engine.dispatch({ type: 'playCard', team: 'player', cardId: 'zip', x: 800, y: 640 })).toBe(true);
+    expect(engine.getSnapshot().units.at(-1)).toMatchObject({ team: 'player', x: 800, y: 640 });
   });
 
   it('extends deployment into only the enemy lane whose Relay was destroyed', () => {
@@ -1222,6 +1222,80 @@ describe('MatchEngine', () => {
         cause: 'decay',
       }),
     );
+  });
+
+  it('turns a Sentry toward and fires at a reachable robot on the other lane', () => {
+    const events: GameEvent[] = [];
+    const engine = new MatchEngine((event) => events.push(event));
+    engine.dispatch({ type: 'start' });
+    const state = harness(engine);
+    state.aiDecisionMs = Number.POSITIVE_INFINITY;
+    state.placeInstallation('player', 'sentry', 740, 300);
+    const sentry = state.installations.at(-1)!;
+    const target = state.spawnUnit('enemy', 'brute', 900, 300);
+    target.disabledMs = 10_000;
+    sentry.cooldownMs = 100;
+
+    engine.step(FIXED_STEP_MS);
+    expect(sentry).toMatchObject({ lane: 'left', facing: 0 });
+    expect(target.hp).toBe(ROBOTS.brute.maxHp);
+
+    engine.step(FIXED_STEP_MS);
+    expect(target.hp).toBeLessThan(ROBOTS.brute.maxHp);
+    expect(events).toContainEqual(expect.objectContaining({
+      type: 'projectileFired',
+      source: expect.objectContaining({ id: sentry.id }),
+      target: expect.objectContaining({ id: target.id }),
+    }));
+  });
+
+  it('attacks across lanes without rerouting when already in range', () => {
+    const engine = new MatchEngine();
+    engine.dispatch({ type: 'start' });
+    const state = harness(engine);
+    state.aiDecisionMs = Number.POSITIVE_INFINITY;
+    const attacker = state.spawnUnit('player', 'pulse', 740, 300);
+    const target = state.spawnUnit('enemy', 'brute', 900, 300);
+    target.disabledMs = 10_000;
+    attacker.cooldown = 0;
+
+    engine.step(FIXED_STEP_MS);
+
+    expect(attacker).toMatchObject({ lane: 'left', x: 740, facing: 0 });
+    expect(target.hp).toBe(ROBOTS.brute.maxHp - ROBOTS.pulse.damage);
+  });
+
+  it('commits to the other lane after crossing its centerline during a chase', () => {
+    const engine = new MatchEngine();
+    engine.dispatch({ type: 'start' });
+    const state = harness(engine);
+    state.aiDecisionMs = Number.POSITIVE_INFINITY;
+    const chaser = state.spawnUnit('player', 'zip', 740, 400);
+    const target = state.spawnUnit('enemy', 'brute', 900, 400);
+    target.disabledMs = 10_000;
+
+    advance(engine, 800);
+
+    expect(chaser.x).toBeGreaterThan(800);
+    expect(chaser.lane).toBe('right');
+    target.hp = 0;
+    engine.step(FIXED_STEP_MS);
+    expect(chaser.lane).toBe('right');
+  });
+
+  it('faces every robot toward the unit or structure it attacks', () => {
+    const engine = new MatchEngine();
+    engine.dispatch({ type: 'start' });
+    const state = harness(engine);
+    const attacker = state.spawnUnit('player', 'pulse', 700, 400);
+    const unitTarget = state.spawnUnit('enemy', 'brute', 700, 300);
+
+    state.attackUnit(attacker, unitTarget);
+    expect(attacker.facing).toBeCloseTo(-Math.PI / 2);
+
+    state.placeInstallation('enemy', 'sentry', 800, 400);
+    state.attackStructure(attacker, state.installations.at(-1)!);
+    expect(attacker.facing).toBeCloseTo(0);
   });
 
   it('has the Foundry fabricate a pair of lane-locked Microbots after activation', () => {

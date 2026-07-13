@@ -6,9 +6,13 @@ import './musicPlayer.css';
 interface MusicPlayerProps {
   engine: MusicEngine;
   bundledPlaylist: readonly MusicTrack[];
-  muted: boolean;
+  audioMuted: boolean;
+  musicMuted: boolean;
+  sfxMuted: boolean;
   sfxVolume: number;
-  onToggleMute: () => void;
+  onToggleAudioMute: () => void;
+  onToggleMusicMute: () => void;
+  onToggleSfxMute: () => void;
   onVolumeChange: (volume: number) => void;
   onSfxVolumeChange: (volume: number) => void;
 }
@@ -37,11 +41,15 @@ function SkipIcon({ previous = false }: { previous?: boolean }) {
   );
 }
 
-function MusicMuteIcon({ muted }: { muted: boolean }) {
+function AudioMuteIcon({ muted }: { muted: boolean }) {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M9 17.5a2.5 2.5 0 1 1-1-2V7l10-2v10.5a2.5 2.5 0 1 1-1-2V8L9 9.5z" />
-      {muted ? <path className="music-player-mute-slash" d="m4 4 16 16" /> : null}
+      <path d="M4 9h4l5-4v14l-5-4H4z" />
+      {muted ? (
+        <path className="music-player-mute-slash" d="m17 9 4 6m0-6-4 6" />
+      ) : (
+        <path d="M16 9c1.4 1.6 1.4 4.4 0 6m2.8-8.8c3 3.2 3 8.4 0 11.6" />
+      )}
     </svg>
   );
 }
@@ -49,9 +57,13 @@ function MusicMuteIcon({ muted }: { muted: boolean }) {
 export function MusicPlayer({
   engine,
   bundledPlaylist,
-  muted,
+  audioMuted,
+  musicMuted,
+  sfxMuted,
   sfxVolume,
-  onToggleMute,
+  onToggleAudioMute,
+  onToggleMusicMute,
+  onToggleSfxMute,
   onVolumeChange,
   onSfxVolumeChange,
 }: MusicPlayerProps) {
@@ -133,11 +145,11 @@ export function MusicPlayer({
         {currentTrack?.artwork || fallbackArtwork ? (
           <img src={currentTrack?.artwork ?? fallbackArtwork} alt="" />
         ) : <span aria-hidden="true">♪</span>}
-        <i className={snapshot.isPlaying && !muted ? 'is-active' : undefined} aria-hidden="true" />
+        <i className={snapshot.isPlaying && !musicMuted ? 'is-active' : undefined} aria-hidden="true" />
       </button>
 
       <div className="music-player-copy" aria-live="polite">
-        <small>{muted ? 'MUSIC MUTED' : snapshot.isPlaying ? 'MUSIC · ON AIR' : 'MUSIC CHANNEL'}</small>
+        <small>{musicMuted ? 'MUSIC MUTED' : snapshot.isPlaying ? 'MUSIC · ON AIR' : 'MUSIC CHANNEL'}</small>
         <strong title={currentTrack?.title}>{currentTrack?.title ?? 'NO TRACK LOADED'}</strong>
       </div>
 
@@ -170,17 +182,16 @@ export function MusicPlayer({
         <SkipIcon />
       </button>
       <button
-        className={`music-player-control music-player-mute${muted ? ' is-muted' : ''}`}
+        className={`music-player-control music-player-mute${audioMuted ? ' is-muted' : ''}`}
         type="button"
-        onClick={onToggleMute}
-        aria-label={muted ? 'Unmute music' : 'Mute music'}
-        aria-pressed={muted}
-        title="Music mute (M)"
-        data-testid="music-mute-toggle"
+        onClick={onToggleAudioMute}
+        aria-label={audioMuted ? 'Unmute all audio' : 'Mute all audio'}
+        aria-pressed={audioMuted}
+        title="Mute all audio (M)"
+        data-testid="audio-mute-toggle"
       >
-        <MusicMuteIcon muted={muted} />
+        <AudioMuteIcon muted={audioMuted} />
       </button>
-
       {panelOpen ? (
         <div className="music-player-panel" role="dialog" aria-modal="false" aria-label="Audio settings and music playlist">
           <header>
@@ -220,7 +231,7 @@ export function MusicPlayer({
           </ol>
 
           <div className="music-player-levels" aria-label="Audio levels">
-            <label className="music-player-volume">
+            <div className="music-player-volume">
               <span>MUSIC LEVEL</span>
               <input
                 type="range"
@@ -234,8 +245,18 @@ export function MusicPlayer({
                 data-testid="music-volume-control"
               />
               <strong>{Math.round(snapshot.volume * 100)}%</strong>
-            </label>
-            <label className="music-player-volume">
+              <button
+                className={musicMuted ? 'is-muted' : undefined}
+                type="button"
+                onClick={onToggleMusicMute}
+                aria-label={musicMuted ? 'Unmute music' : 'Mute music'}
+                aria-pressed={musicMuted}
+                data-testid="music-mute-toggle"
+              >
+                {musicMuted ? 'UNMUTE' : 'MUTE'}
+              </button>
+            </div>
+            <div className="music-player-volume">
               <span>SFX LEVEL</span>
               <input
                 type="range"
@@ -249,7 +270,17 @@ export function MusicPlayer({
                 data-testid="sfx-volume-control"
               />
               <strong>{Math.round(sfxVolume * 100)}%</strong>
-            </label>
+              <button
+                className={sfxMuted ? 'is-muted' : undefined}
+                type="button"
+                onClick={onToggleSfxMute}
+                aria-label={sfxMuted ? 'Unmute sound effects' : 'Mute sound effects'}
+                aria-pressed={sfxMuted}
+                data-testid="sfx-mute-toggle"
+              >
+                {sfxMuted ? 'UNMUTE' : 'MUTE'}
+              </button>
+            </div>
           </div>
 
           {snapshot.error ? <p className="music-player-error" role="status">{snapshot.error}</p> : null}

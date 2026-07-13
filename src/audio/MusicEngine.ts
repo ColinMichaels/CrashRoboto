@@ -98,6 +98,14 @@ export class MusicEngine {
     this.update({ isPlaying: false });
   }
 
+  stop(): void {
+    if (this.disposed) return;
+    this.playRequestId += 1;
+    this.audio.pause();
+    this.audio.currentTime = 0;
+    this.update({ isPlaying: false, currentTime: 0 });
+  }
+
   async toggle(): Promise<boolean> {
     if (this.snapshot.isPlaying || !this.audio.paused) {
       this.pause();

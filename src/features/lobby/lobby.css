@@ -342,33 +342,6 @@
   box-shadow: 0 0 8px var(--pilot-accent);
 }
 
-.lobby-sound-button {
-  display: grid;
-  width: clamp(32px, 3vw, 46px);
-  aspect-ratio: 1;
-  padding: 0;
-  place-items: center;
-  border: 1px solid rgba(143, 211, 206, 0.32);
-  background: rgba(4, 14, 19, 0.72);
-  color: #a8c8c6;
-  cursor: pointer;
-  clip-path: polygon(18% 0, 82% 0, 100% 18%, 100% 82%, 82% 100%, 18% 100%, 0 82%, 0 18%);
-}
-
-.lobby-sound-button:hover {
-  border-color: var(--cyan);
-  color: var(--cyan);
-}
-
-.lobby-sound-button svg {
-  width: 50%;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.8;
-}
-
 .lobby-protocol-panel {
   display: grid;
   min-width: 0;
@@ -1624,8 +1597,7 @@ button.lobby-card:hover:not(:disabled) {
     display: none;
   }
 
-  .lobby-pilot-mark,
-  .lobby-sound-button {
+  .lobby-pilot-mark {
     width: 27px;
   }
 
@@ -2037,13 +2009,8 @@ button.lobby-card:hover:not(:disabled) {
     font-size: 0.42rem;
   }
 
-  .lobby-sound-button,
   .lobby-pilot-selector {
     min-height: 44px;
-  }
-
-  .lobby-sound-button {
-    width: 44px;
   }
 
   .lobby-pilot-selector {

@@ -122,6 +122,11 @@ class FakeAudioContext {
     return Promise.resolve();
   }
 
+  suspend(): Promise<void> {
+    this.state = 'suspended';
+    return Promise.resolve();
+  }
+
   close(): Promise<void> {
     this.state = 'closed';
     return Promise.resolve();
@@ -250,6 +255,29 @@ describe('SoundEngine', () => {
     engine.playCardSelected('gravity');
     engine.blip();
     expect(context.oscillatorCount + context.noiseCount).toBe(activeNodeCount);
+
+    engine.dispose();
+  });
+
+  it('suspends active sounds and suppresses new sounds until resumed', async () => {
+    const context = new FakeAudioContext();
+    const engine = new SoundEngine({ createContext: () => context as unknown as AudioContext });
+
+    engine.blip();
+    const activeNodeCount = context.oscillatorCount + context.noiseCount;
+    engine.pause();
+    await Promise.resolve();
+
+    expect(context.state).toBe('suspended');
+    engine.blip();
+    expect(context.oscillatorCount + context.noiseCount).toBe(activeNodeCount);
+
+    engine.resume();
+    await Promise.resolve();
+    expect(context.state).toBe('running');
+    context.currentTime += 0.1;
+    engine.blip();
+    expect(context.oscillatorCount + context.noiseCount).toBeGreaterThan(activeNodeCount);
 
     engine.dispose();
   });

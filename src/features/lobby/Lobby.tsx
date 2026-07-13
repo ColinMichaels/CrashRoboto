@@ -61,8 +61,6 @@ export interface LobbyProps {
   onReset: () => void;
   onPrepareLaunch: () => void;
   onLaunch: () => void;
-  sfxMuted: boolean;
-  onToggleSfxMute: () => void;
 }
 
 const CATEGORY_LABELS: Record<CardCategory, string> = {
@@ -98,20 +96,6 @@ function LogoMark() {
     <svg className="lobby-logo-mark" viewBox="0 0 64 64" aria-hidden="true">
       <path d="M23 8h18l10 10v28L41 56H23L13 46V18z" />
       <path d="M32 12v19m-10-8a15 15 0 1 0 20 0" />
-    </svg>
-  );
-}
-
-function SoundIcon({ muted }: { muted: boolean }) {
-  return muted ? (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M4 9h4l5-4v14l-5-4H4z" />
-      <path d="m17 9 4 6m0-6-4 6" />
-    </svg>
-  ) : (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M4 9h4l5-4v14l-5-4H4z" />
-      <path d="M16 9c1.4 1.6 1.4 4.4 0 6m2.8-8.8c3 3.2 3 8.4 0 11.6" />
     </svg>
   );
 }
@@ -324,8 +308,6 @@ export function Lobby({
   onReset,
   onPrepareLaunch,
   onLaunch,
-  sfxMuted,
-  onToggleSfxMute,
 }: LobbyProps) {
   const modeHeadingId = useId();
   const launchHintId = useId();
@@ -465,17 +447,6 @@ export function Lobby({
         <div className="lobby-pilot">
           <button className="lobby-training-button" type="button" onClick={onStartTutorial}>
             TRAINING{tutorialCompleted ? ' ✓' : ''}
-          </button>
-          <button
-            className="lobby-sound-button"
-            type="button"
-            onClick={onToggleSfxMute}
-            aria-label={sfxMuted ? 'Unmute sound effects' : 'Mute sound effects'}
-            aria-pressed={sfxMuted}
-            title="Sound effects mute (Shift+M)"
-            data-testid="sfx-mute-toggle"
-          >
-            <SoundIcon muted={sfxMuted} />
           </button>
           <button
             ref={pilotTriggerRef}

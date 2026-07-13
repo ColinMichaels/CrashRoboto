@@ -59,6 +59,10 @@ import {
   textureKey,
 } from './arenaPresentation';
 import { createArenaViewport, type ArenaViewport } from './arenaViewport';
+import {
+  SENTRY_DIRECTION_ATLAS_KEY,
+  getSentryDirectionFrame,
+} from './sentryPresentation';
 
 interface NanoZoneVisual {
   field: GameObjects.Graphics;
@@ -464,16 +468,22 @@ export class BattleScene extends Scene {
   private syncInstallation(installation: InstallationState): void {
     let sprite = this.installationSprites.get(installation.id);
     const definition = INSTALLATIONS[installation.kind];
+    const texture = installation.kind === 'sentry'
+      ? SENTRY_DIRECTION_ATLAS_KEY
+      : textureKey(definition.sheet);
+    const frame = installation.kind === 'sentry'
+      ? getSentryDirectionFrame(installation.facing)
+      : definition.frame;
     const size = INSTALLATION_SIZES[installation.kind] * getPerspectiveScale(installation.y);
     if (!sprite) {
       sprite = this.add
-        .image(installation.x, installation.y, textureKey(definition.sheet), definition.frame)
+        .image(installation.x, installation.y, texture, frame)
         .setDisplaySize(size, size);
       this.installationSprites.set(installation.id, sprite);
     }
 
     sprite
-      .setTexture(textureKey(definition.sheet), definition.frame)
+      .setTexture(texture, frame)
       .setPosition(installation.x, installation.y)
       .setDisplaySize(size, size)
       .setDepth(4.7 + installation.y / 1000)

@@ -17,6 +17,7 @@ describe('arena asset manifest', () => {
     const keys = getKeys(createDecks([...DEFAULT_PLAYER_DECK]));
 
     expect(keys).toContain('arena-robot-move-sprites');
+    expect(keys).toContain('sentry-directional-sprites');
     expect(keys).not.toContain('robot-sprites');
     expect(keys).not.toContain('vault-sprites');
     expect(keys).not.toContain('vault-unit-sprites');

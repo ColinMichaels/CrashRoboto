@@ -17,7 +17,7 @@ describe('placement feedback', () => {
     expect(evaluatePlacement('player', 'zip', 680, 220, state)).toMatchObject({ failure: 'territory' });
     expect(evaluatePlacement('player', 'zip', 800, 535, state)).toMatchObject({ failure: 'tower' });
     expect(evaluatePlacement('player', 'zip', 680, 420, state)).toMatchObject({ valid: true, lane: 'left' });
-    expect(evaluatePlacement('player', 'zip', 800, 625, state)).toMatchObject({ valid: true });
+    expect(evaluatePlacement('player', 'zip', 800, 640, state)).toMatchObject({ valid: true });
     expect(evaluatePlacement('player', 'zip', 720, 560, state)).toMatchObject({ valid: true, lane: 'left' });
 
     state.towers.find((tower) => tower.id === 'enemy-left')!.hp = 0;

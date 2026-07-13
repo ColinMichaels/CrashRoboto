@@ -254,14 +254,21 @@ export function RobotStatsDialog(props: RobotStatsDialogProps) {
   };
 
   return (
-    <section
-      className={`robot-stats-panel tech-${robot.techClass}${lobby ? ' is-lobby-lab' : ''}`}
-      role="dialog"
-      aria-modal="false"
-      aria-labelledby="robot-lab-title"
-      aria-describedby="robot-lab-description"
-      data-testid="robot-stats-dialog"
+    <div
+      className={`card-stats-dismiss-layer${lobby ? ' is-lobby' : ' is-battle'}`}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+      data-testid="card-stats-dismiss-layer"
     >
+      <section
+        className={`robot-stats-panel tech-${robot.techClass}${lobby ? ' is-lobby-lab' : ''}`}
+        role="dialog"
+        aria-modal="false"
+        aria-labelledby="robot-lab-title"
+        aria-describedby="robot-lab-description"
+        data-testid="robot-stats-dialog"
+      >
       <header className="robot-lab-header">
         <span
           className={`robot-lab-portrait portrait-${robot.sheet}`}
@@ -334,7 +341,8 @@ export function RobotStatsDialog(props: RobotStatsDialogProps) {
             : 'ADD THIS CHIP TO THE ACTIVE LOADOUT TO UPGRADE'
           : 'UPGRADES USE MATCH CHARGE'}
       </footer>
-      <p className="sr-only" role="status" aria-live="polite">{announcement}</p>
-    </section>
+        <p className="sr-only" role="status" aria-live="polite">{announcement}</p>
+      </section>
+    </div>
   );
 }
