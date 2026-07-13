@@ -1,14 +1,30 @@
 import { AUTO, Game, Scale } from 'phaser';
 import type { GameBridge } from '../bridge/GameBridge';
-import { BOARD_HEIGHT, BOARD_WIDTH } from '../core/content';
 import { BattleScene } from './BattleScene';
+import {
+  clientPointToArenaPoint,
+  createArenaViewport,
+  type ArenaPoint,
+  type ArenaViewport,
+} from './arenaViewport';
 
-export function createGame(parent: HTMLElement, bridge: GameBridge): Game {
-  return new Game({
+export interface ArenaGame {
+  readonly game: Game;
+  resize(width: number, height: number): ArenaViewport;
+  clientToWorld(clientX: number, clientY: number): ArenaPoint | null;
+  destroy(): void;
+}
+
+export function createGame(parent: HTMLElement, bridge: GameBridge): ArenaGame {
+  const initialBounds = parent.getBoundingClientRect();
+  const initialViewport = createArenaViewport(initialBounds.width, initialBounds.height);
+  const scene = new BattleScene(bridge);
+  let viewport = initialViewport;
+  const game = new Game({
     type: AUTO,
     parent,
-    width: BOARD_WIDTH,
-    height: BOARD_HEIGHT,
+    width: initialViewport.screenWidth,
+    height: initialViewport.screenHeight,
     backgroundColor: '#071218',
     banner: false,
     render: {
@@ -17,11 +33,36 @@ export function createGame(parent: HTMLElement, bridge: GameBridge): Game {
       roundPixels: false,
     },
     scale: {
-      mode: Scale.FIT,
-      autoCenter: Scale.CENTER_BOTH,
-      width: BOARD_WIDTH,
-      height: BOARD_HEIGHT,
+      mode: Scale.RESIZE,
+      autoCenter: Scale.NO_CENTER,
+      width: initialViewport.screenWidth,
+      height: initialViewport.screenHeight,
     },
-    scene: [new BattleScene(bridge)],
+    scene: [scene],
   });
+
+  scene.resizeArenaViewport(initialViewport.screenWidth, initialViewport.screenHeight);
+
+  return {
+    game,
+    resize(width, height) {
+      const nextViewport = createArenaViewport(width, height);
+      if (
+        nextViewport.screenWidth === viewport.screenWidth &&
+        nextViewport.screenHeight === viewport.screenHeight
+      ) {
+        return viewport;
+      }
+      viewport = nextViewport;
+      game.scale.resize(viewport.screenWidth, viewport.screenHeight);
+      scene.resizeArenaViewport(viewport.screenWidth, viewport.screenHeight);
+      return viewport;
+    },
+    clientToWorld(clientX, clientY) {
+      return clientPointToArenaPoint(clientX, clientY, parent.getBoundingClientRect(), viewport);
+    },
+    destroy() {
+      game.destroy(true);
+    },
+  };
 }

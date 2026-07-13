@@ -70,6 +70,12 @@ import type {
 
 type EventSink = (event: GameEvent) => void;
 type StructureState = TowerState | InstallationState;
+type PowerDrainBasis = 'tower-integrity' | 'tower-damage' | 'battle-score' | 'seeded-initiative';
+
+export const POWER_DRAIN_WARNING_MS = 1_500;
+export const POWER_DRAIN_DURATION_MS = 8_000;
+const POWER_DRAIN_ADVANTAGE_MULTIPLIER = 0.975;
+const POWER_DRAIN_EPSILON = 0.000_001;
 
 class SeededRandom {
   private state: number;
@@ -160,6 +166,11 @@ export class MatchEngine {
   };
   private score: Record<Team, number> = { player: 0, enemy: 0 };
   private battleScore: Record<Team, number> = { player: 0, enemy: 0 };
+  private towerDamage: Record<Team, number> = { player: 0, enemy: 0 };
+  private roundNumber = 1;
+  private roundWins: Record<Team, number> = { player: 0, enemy: 0 };
+  private seriesBattleScore: Record<Team, number> = { player: 0, enemy: 0 };
+  private roundResult: MatchResult | null = null;
   private towers = createTowers();
   private units: UnitState[] = [];
   private installations: InstallationState[] = [];
@@ -184,6 +195,12 @@ export class MatchEngine {
   private attackCounter = 0;
   private aiDecisionMs = 900;
   private playDebounce: Record<Team, number> = { player: 0, enemy: 0 };
+  private powerDrainDelayMs = 0;
+  private powerDrainWinner: Team = 'player';
+  private powerDrainBasis: PowerDrainBasis = 'tower-integrity';
+  private powerDrainNeedsAdvantage = false;
+  private powerDrainRatePerMs = 0;
+  private powerDrainElapsedMs = 0;
   private random: SeededRandom;
 
   constructor(
@@ -205,11 +222,17 @@ export class MatchEngine {
         if (!config) return false;
         this.lockMatchConfig(config);
         this.reset('playing');
+        this.emit({ type: 'matchStarted', modeId: this.modeId, restart: false });
+        this.emitRoundStarted();
         return true;
       }
       case 'restart':
         this.reset('playing');
+        this.emit({ type: 'matchStarted', modeId: this.modeId, restart: true });
+        this.emitRoundStarted();
         return true;
+      case 'nextRound':
+        return this.startNextRound();
       case 'returnToLobby':
         this.reset('menu');
         return true;
@@ -231,6 +254,7 @@ export class MatchEngine {
         this.selected = command.cardId;
         this.guidance = command.cardId ? this.getCardGuidance(command.cardId) : null;
         this.guidanceMs = command.cardId ? 2_500 : 0;
+        if (command.cardId) this.emit({ type: 'cardSelected', team: 'player', cardId: command.cardId });
         this.revision += 1;
         return true;
       case 'playCard':
@@ -243,9 +267,14 @@ export class MatchEngine {
   }
 
   step(ms = FIXED_STEP_MS): void {
+    const dtMs = Math.max(0, Math.min(ms, 250));
+    if (this.phase === 'resolving') {
+      this.updatePowerDrain(dtMs);
+      this.revision += 1;
+      return;
+    }
     if (this.phase !== 'playing') return;
 
-    const dtMs = Math.max(0, Math.min(ms, 250));
     const dt = dtMs / 1000;
     const mode = GAME_MODES[this.modeId];
     const previousStage = getMatchStage(mode, this.remainingMs);
@@ -307,6 +336,7 @@ export class MatchEngine {
       charge: { ...this.charge },
       score: { ...this.score },
       battleScore: { ...this.battleScore },
+      towerDamage: { ...this.towerDamage },
       towers: this.towers.map((tower) => ({ ...tower })),
       units: this.units.map((unit) => ({ ...unit })),
       installations: this.installations.map((installation) => ({ ...installation })),
@@ -333,6 +363,28 @@ export class MatchEngine {
         player: cloneCardLevels(this.cardLevels.player),
         enemy: cloneCardLevels(this.cardLevels.enemy),
       },
+      series: mode.series ? {
+        currentRound: this.roundNumber,
+        maxRounds: mode.series.maxRounds,
+        winsRequired: mode.series.winsRequired,
+        wins: { ...this.roundWins },
+        battleScore: { ...this.seriesBattleScore },
+        roundResult: this.roundResult ? { ...this.roundResult } : null,
+      } : null,
+      powerDrain: this.phase === 'resolving'
+        ? {
+            stage: this.powerDrainDelayMs > 0
+              ? 'warning'
+              : this.powerDrainElapsedMs >= POWER_DRAIN_DURATION_MS * 0.72
+                ? 'critical'
+                : 'draining',
+            remainingMs: this.powerDrainDelayMs + Math.max(
+              0,
+              POWER_DRAIN_DURATION_MS - this.powerDrainElapsedMs,
+            ),
+            progress: Math.min(1, this.powerDrainElapsedMs / POWER_DRAIN_DURATION_MS),
+          }
+        : null,
       result: this.result ? { ...this.result } : null,
       guidance: this.guidance,
       revision: this.revision,
@@ -343,6 +395,13 @@ export class MatchEngine {
     const tower = this.towers.find((item) => item.id === id);
     if (!tower || tower.hp <= 0 || amount <= 0) return;
     this.damageTower(tower, amount, 'program', getOpponent(tower.team));
+    this.revision += 1;
+  }
+
+  debugExpireTimer(): void {
+    if (this.phase !== 'playing') return;
+    this.remainingMs = 0;
+    this.finishByTimer();
     this.revision += 1;
   }
 
@@ -366,17 +425,54 @@ export class MatchEngine {
     this.openingDecks = createOpeningDecks(this.decks, this.seed);
   }
 
+  private startNextRound(): boolean {
+    const series = GAME_MODES[this.modeId].series;
+    if (!series || this.phase !== 'round-ended' || this.roundNumber >= series.maxRounds) return false;
+    if (this.roundWins.player >= series.winsRequired || this.roundWins.enemy >= series.winsRequired) return false;
+    this.roundNumber += 1;
+    this.resetRound('playing');
+    this.emitRoundStarted();
+    return true;
+  }
+
+  private emitRoundStarted(): void {
+    const series = GAME_MODES[this.modeId].series;
+    if (!series) return;
+    this.emit({
+      type: 'roundStarted',
+      modeId: this.modeId,
+      roundNumber: this.roundNumber,
+      maxRounds: series.maxRounds,
+    });
+  }
+
+  private getRoundSeed(): number {
+    return this.roundNumber === 1
+      ? this.seed
+      : deriveSeed(this.seed, 0x524f_554e ^ this.roundNumber);
+  }
+
   private reset(phase: MatchSnapshot['phase']): void {
+    this.roundNumber = 1;
+    this.roundWins = { player: 0, enemy: 0 };
+    this.seriesBattleScore = { player: 0, enemy: 0 };
+    this.resetRound(phase);
+  }
+
+  private resetRound(phase: MatchSnapshot['phase']): void {
     const mode = GAME_MODES[this.modeId];
+    const roundSeed = this.getRoundSeed();
     this.phase = phase;
     this.remainingMs = mode.durationMs;
     this.charge = { player: mode.startingCharge, enemy: mode.startingCharge };
     this.score = { player: 0, enemy: 0 };
     this.battleScore = { player: 0, enemy: 0 };
+    this.towerDamage = { player: 0, enemy: 0 };
     this.towers = createTowers(mode.relayHpMultiplier, this.configuredPlayerTowerWeapons);
     this.units = [];
     this.installations = [];
     this.zones = [];
+    this.openingDecks = createOpeningDecks(this.decks, roundSeed);
     this.hands = dealHands(this.openingDecks);
     this.queues = dealQueues(this.openingDecks);
     this.selected = null;
@@ -384,7 +480,12 @@ export class MatchEngine {
     this.upgrades = createUpgradeBook(this.configuredPlayerUpgrades);
     this.cardLevels = createCardLevelBook(this.configuredPlayerCardLevels);
     this.result = null;
-    this.guidance = phase === 'playing' ? 'OPENING WINDOW — CHARGE REGEN +25%' : null;
+    this.roundResult = null;
+    this.guidance = phase === 'playing'
+      ? mode.series
+        ? `ROUND ${this.roundNumber} — OPENING WINDOW · CHARGE +25%`
+        : 'OPENING WINDOW — CHARGE REGEN +25%'
+      : null;
     this.guidanceMs = phase === 'playing' ? 4_000 : 0;
     this.overclockAnnounced = false;
     this.unitCounter = 0;
@@ -393,7 +494,13 @@ export class MatchEngine {
     this.attackCounter = 0;
     this.aiDecisionMs = 1_100;
     this.playDebounce = { player: 0, enemy: 0 };
-    this.random = new SeededRandom(this.seed);
+    this.powerDrainDelayMs = 0;
+    this.powerDrainWinner = 'player';
+    this.powerDrainBasis = 'tower-integrity';
+    this.powerDrainNeedsAdvantage = false;
+    this.powerDrainRatePerMs = 0;
+    this.powerDrainElapsedMs = 0;
+    this.random = new SeededRandom(roundSeed);
     this.revision += 1;
   }
 
@@ -974,6 +1081,11 @@ export class MatchEngine {
       : amount;
   }
 
+  private awardBattleScore(team: Team, amount: number): void {
+    this.battleScore[team] += amount;
+    if (GAME_MODES[this.modeId].series) this.seriesBattleScore[team] += amount;
+  }
+
   private damageUnit(
     target: UnitState,
     amount: number,
@@ -988,7 +1100,7 @@ export class MatchEngine {
     target.shieldHp = Math.max(0, target.shieldHp - absorbed);
     target.hp = Math.max(0, target.hp - (applied - absorbed));
     if (target.hp === 0) {
-      if (byTeam && byTeam !== target.team) this.battleScore[byTeam] += SCORE_AWARDS.unit;
+      if (byTeam && byTeam !== target.team) this.awardBattleScore(byTeam, SCORE_AWARDS.unit);
       this.emit({ type: 'entityDestroyed', entity: this.unitRef(target), cause, byTeam, attackId });
     }
     return before - target.hp - target.shieldHp;
@@ -1006,7 +1118,7 @@ export class MatchEngine {
     const before = target.hp;
     target.hp = Math.max(0, target.hp - applied);
     if (target.hp === 0) {
-      if (byTeam && byTeam !== target.team) this.battleScore[byTeam] += SCORE_AWARDS.installation;
+      if (byTeam && byTeam !== target.team) this.awardBattleScore(byTeam, SCORE_AWARDS.installation);
       this.emit({ type: 'entityDestroyed', entity: this.installationRef(target), cause, byTeam, attackId });
     }
     return before - target.hp;
@@ -1023,14 +1135,21 @@ export class MatchEngine {
     const applied = this.reduceIncomingDamage(target, amount, cause);
     const before = target.hp;
     target.hp = Math.max(0, target.hp - applied);
+    const actualDamage = before - target.hp;
+    if (byTeam && byTeam !== target.team && cause !== 'decay') {
+      this.towerDamage[byTeam] += actualDamage;
+    }
     if (target.hp === 0) {
       if (byTeam && byTeam !== target.team) {
-        this.battleScore[byTeam] += target.kind === 'core' ? SCORE_AWARDS.core : SCORE_AWARDS.relay;
+        this.awardBattleScore(
+          byTeam,
+          target.kind === 'core' ? SCORE_AWARDS.core : SCORE_AWARDS.relay,
+        );
       }
       this.emit({ type: 'entityDestroyed', entity: this.towerRef(target), cause, byTeam, attackId });
       this.onTowerDestroyed(target);
     }
-    return before - target.hp;
+    return actualDamage;
   }
 
   private damageStructure(
@@ -1188,7 +1307,7 @@ export class MatchEngine {
       this.score[victor] += 1;
       const relayScoreLimit = GAME_MODES[this.modeId].relayScoreLimit;
       if (relayScoreLimit !== undefined && this.score[victor] >= relayScoreLimit) {
-        this.endMatch({
+        this.endRound({
           winner: victor,
           reason: 'relay',
           headline: victor === 'player' ? 'RELAYS OVERRUN' : 'RELAY GRID LOST',
@@ -1203,7 +1322,7 @@ export class MatchEngine {
       this.guidanceMs = 2_800;
       return;
     }
-    this.endMatch({
+    this.endRound({
       winner: victor,
       reason: 'core',
       headline: victor === 'player' ? 'CORE CRASHED' : 'SYSTEM OVERRUN',
@@ -1215,33 +1334,178 @@ export class MatchEngine {
     const scoreDelta = this.score.player - this.score.enemy;
     if (scoreDelta !== 0) {
       const winner: Team = scoreDelta > 0 ? 'player' : 'enemy';
-      this.endMatch({
+      this.endRound({
         winner,
         reason: 'timer',
         headline: winner === 'player' ? 'NETWORK SECURED' : 'SIGNAL LOST',
-        detail: `Final Data Point score ${this.score.player}–${this.score.enemy}.`,
+        detail: `More enemy towers destroyed: ${this.score.player}–${this.score.enemy}.`,
       });
       return;
     }
-    const integrity = (team: Team) => this.towers.filter((tower) => tower.team === team).reduce((sum, tower) => sum + tower.hp / tower.maxHp, 0);
-    const playerIntegrity = integrity('player');
-    const enemyIntegrity = integrity('enemy');
-    if (Math.abs(playerIntegrity - enemyIntegrity) <= 0.005) {
-      this.endMatch({ winner: 'draw', reason: 'integrity', headline: 'SIGNAL DEADLOCK', detail: 'Both networks survived with equal integrity.' });
+    this.beginPowerDrain();
+  }
+
+  private beginPowerDrain(): void {
+    const lowestIntegrity = (team: Team) => Math.min(
+      ...this.towers
+        .filter((tower) => tower.team === team && tower.hp > 0)
+        .map((tower) => tower.hp / tower.maxHp),
+    );
+    const playerIntegrity = lowestIntegrity('player');
+    const enemyIntegrity = lowestIntegrity('enemy');
+    const integrityDelta = playerIntegrity - enemyIntegrity;
+    // Calibrate against the weakest live tower so the visible collapse always lasts eight seconds.
+    this.powerDrainRatePerMs = Math.min(playerIntegrity, enemyIntegrity) / POWER_DRAIN_DURATION_MS;
+    this.powerDrainElapsedMs = 0;
+    const damageDelta = Math.round(this.towerDamage.player) - Math.round(this.towerDamage.enemy);
+    const scoreDelta = this.battleScore.player - this.battleScore.enemy;
+    if (Math.abs(integrityDelta) > POWER_DRAIN_EPSILON) {
+      this.powerDrainWinner = integrityDelta > 0 ? 'player' : 'enemy';
+      this.powerDrainBasis = 'tower-integrity';
+      this.powerDrainNeedsAdvantage = false;
+    } else if (damageDelta !== 0) {
+      this.powerDrainWinner = damageDelta > 0 ? 'player' : 'enemy';
+      this.powerDrainBasis = 'tower-damage';
+      this.powerDrainNeedsAdvantage = true;
+    } else if (scoreDelta !== 0) {
+      this.powerDrainWinner = scoreDelta > 0 ? 'player' : 'enemy';
+      this.powerDrainBasis = 'battle-score';
+      this.powerDrainNeedsAdvantage = true;
+    } else {
+      this.powerDrainWinner = (deriveSeed(this.getRoundSeed(), 0x4452_4149) & 1) === 0
+        ? 'player'
+        : 'enemy';
+      this.powerDrainBasis = 'seeded-initiative';
+      this.powerDrainNeedsAdvantage = true;
+    }
+
+    this.powerDrainDelayMs = POWER_DRAIN_WARNING_MS;
+    this.phase = 'resolving';
+    this.selected = null;
+    this.guidance = 'POWER DRAIN — LOWEST TOWER POWER FALLS FIRST';
+    this.guidanceMs = 0;
+    this.emit({
+      type: 'powerDrainStarted',
+      warningMs: POWER_DRAIN_WARNING_MS,
+      durationMs: POWER_DRAIN_DURATION_MS,
+    });
+  }
+
+  private updatePowerDrain(dtMs: number): void {
+    if (this.phase !== 'resolving' || dtMs <= 0) return;
+    const delayConsumed = Math.min(this.powerDrainDelayMs, dtMs);
+    this.powerDrainDelayMs -= delayConsumed;
+    const drainMs = dtMs - delayConsumed;
+    if (drainMs <= 0) return;
+
+    const activeTowers = this.towers.filter((tower) => tower.hp > 0);
+    if (activeTowers.length === 0) return;
+    const drainRate = (tower: TowerState) => {
+      const advantage = this.powerDrainNeedsAdvantage && tower.team === this.powerDrainWinner
+        ? POWER_DRAIN_ADVANTAGE_MULTIPLIER
+        : 1;
+      return tower.maxHp * this.powerDrainRatePerMs * advantage;
+    };
+    const crossingTimes = activeTowers.map((tower) => ({
+      tower,
+      timeMs: tower.hp / drainRate(tower),
+    }));
+    const firstEmptyMs = Math.min(...crossingTimes.map(({ timeMs }) => timeMs));
+    const appliedMs = Math.min(drainMs, firstEmptyMs);
+    this.powerDrainElapsedMs = Math.min(
+      POWER_DRAIN_DURATION_MS,
+      this.powerDrainElapsedMs + appliedMs,
+    );
+    for (const tower of activeTowers) {
+      tower.hp = Math.max(0, tower.hp - drainRate(tower) * appliedMs);
+    }
+
+    if (firstEmptyMs > drainMs + POWER_DRAIN_EPSILON) return;
+    const firstTowers = crossingTimes.filter(
+      ({ timeMs }) => Math.abs(timeMs - firstEmptyMs) <= POWER_DRAIN_EPSILON,
+    );
+    const losingTeams = new Set(firstTowers.map(({ tower }) => tower.team));
+    const losingTeam = losingTeams.size === 1
+      ? firstTowers[0].tower.team
+      : getOpponent(this.powerDrainWinner);
+    const drainedTower = firstTowers
+      .filter(({ tower }) => tower.team === losingTeam)
+      .map(({ tower }) => tower)
+      .sort((a, b) => a.id.localeCompare(b.id))[0];
+    if (!drainedTower) return;
+    for (const tower of activeTowers) {
+      if (tower.id !== drainedTower.id && tower.hp <= POWER_DRAIN_EPSILON) {
+        tower.hp = POWER_DRAIN_EPSILON;
+      }
+    }
+    this.finishPowerDrain(getOpponent(losingTeam), drainedTower);
+  }
+
+  private finishPowerDrain(winner: Team, drainedTower: TowerState): void {
+    drainedTower.hp = 0;
+    this.emit({ type: 'entityDestroyed', entity: this.towerRef(drainedTower), cause: 'power-drain' });
+    this.emit({ type: 'towerDestroyed', tower: { ...drainedTower } });
+    const playerDamage = Math.round(this.towerDamage.player);
+    const enemyDamage = Math.round(this.towerDamage.enemy);
+    const towerName = drainedTower.kind === 'core'
+      ? `${drainedTower.team === 'player' ? 'Your' : 'Enemy'} Core`
+      : `${drainedTower.team === 'player' ? 'Your' : 'Enemy'} ${drainedTower.lane} Relay`;
+    const detail = this.powerDrainBasis === 'tower-integrity'
+      ? `${towerName} lost power first after ${playerDamage}–${enemyDamage} tower damage.`
+      : this.powerDrainBasis === 'tower-damage'
+        ? `Lowest tower power was even; ${playerDamage}–${enemyDamage} tower damage broke the tie.`
+        : this.powerDrainBasis === 'battle-score'
+          ? 'Tower power and damage were even; Battle Score granted the decisive drain pulse.'
+          : 'Tower power, damage, and Battle Score were even; seeded initiative broke the deadlock.';
+    this.endRound({
+      winner,
+      reason: 'power-drain',
+      headline: winner === 'player' ? 'POWER ADVANTAGE' : 'NETWORK DRAINED',
+      detail,
+    });
+  }
+
+  private endRound(roundResult: MatchResult): void {
+    const series = GAME_MODES[this.modeId].series;
+    if (!series) {
+      this.endMatch(roundResult);
       return;
     }
-    const winner: Team = playerIntegrity > enemyIntegrity ? 'player' : 'enemy';
-    this.endMatch({
-      winner,
-      reason: 'integrity',
-      headline: winner === 'player' ? 'NETWORK SECURED' : 'SIGNAL LOST',
-      detail: 'Tower integrity broke the Data Point tie.',
+    if (this.phase === 'round-ended' || this.phase === 'ended') return;
+
+    this.roundResult = { ...roundResult };
+    if (roundResult.winner !== 'draw') this.roundWins[roundResult.winner] += 1;
+    const matchComplete = roundResult.winner !== 'draw' &&
+      this.roundWins[roundResult.winner] >= series.winsRequired;
+    this.selected = null;
+    this.guidance = null;
+    this.emit({
+      type: 'roundEnded',
+      roundNumber: this.roundNumber,
+      result: { ...roundResult },
+      wins: { ...this.roundWins },
+      matchComplete,
     });
+
+    if (matchComplete) {
+      const winner = roundResult.winner as Team;
+      this.endMatch({
+        winner,
+        reason: 'round-majority',
+        headline: winner === 'player' ? 'SERIES SECURED' : 'SERIES LOST',
+        detail: `Final series score ${this.roundWins.player}–${this.roundWins.enemy}.`,
+      });
+      return;
+    }
+
+    this.phase = 'round-ended';
+    this.result = null;
+    this.revision += 1;
   }
 
   private endMatch(result: MatchResult): void {
     if (this.phase === 'ended') return;
-    if (result.winner !== 'draw') this.battleScore[result.winner] += SCORE_AWARDS.victory;
+    if (result.winner !== 'draw') this.awardBattleScore(result.winner, SCORE_AWARDS.victory);
     this.phase = 'ended';
     this.result = result;
     this.selected = null;

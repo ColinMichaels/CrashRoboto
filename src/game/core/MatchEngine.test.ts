@@ -38,7 +38,11 @@ import {
   normalizeCardLevels,
   validateMatchConfig,
 } from './content';
-import { MatchEngine } from './MatchEngine';
+import {
+  MatchEngine,
+  POWER_DRAIN_DURATION_MS,
+  POWER_DRAIN_WARNING_MS,
+} from './MatchEngine';
 import type {
   CardLevelMap,
   CardId,
@@ -68,6 +72,7 @@ type MatchEngineHarness = {
   damageTower: (target: TowerState, amount: number, cause: 'projectile' | 'program' | 'decay', byTeam?: Team) => number;
   attackUnit: (attacker: UnitState, target: UnitState) => void;
   attackStructure: (attacker: UnitState, target: InstallationState) => void;
+  remainingMs: number;
   aiDecisionMs: number;
   units: UnitState[];
   installations: InstallationState[];
@@ -76,6 +81,13 @@ type MatchEngineHarness = {
 };
 
 const harness = (engine: MatchEngine) => engine as unknown as MatchEngineHarness;
+
+const expireTimer = (engine: MatchEngine) => {
+  const state = harness(engine);
+  state.aiDecisionMs = Number.POSITIVE_INFINITY;
+  state.remainingMs = FIXED_STEP_MS;
+  engine.step(FIXED_STEP_MS);
+};
 
 const PROGRAM_TEST_DECK: CardId[] = ['zip', 'foundry', 'sentry', 'vector', 'nano', 'pulse', 'brute', 'emp'];
 const SENTRY_TEST_DECK: CardId[] = ['zip', 'brute', 'emp', 'vector', 'nano', 'pulse', 'foundry', 'sentry'];
@@ -86,6 +98,24 @@ const startWithDeck = (
   playerDeck: CardId[],
   modeId: MatchConfig['modeId'] = 'core-siege',
 ) => engine.dispatch({ type: 'start', config: { modeId, playerDeck } });
+
+const startBestOfThree = (engine: MatchEngine, playerDeck: CardId[] = DEFAULT_PLAYER_DECK) =>
+  startWithDeck(engine, playerDeck, 'best-of-three');
+
+const winRoundByCore = (engine: MatchEngine, winner: Team) => {
+  const loser = winner === 'player' ? 'enemy' : 'player';
+  engine.debugDamageTower(`${loser}-core`, Number.MAX_SAFE_INTEGER);
+};
+
+const settlePowerDrain = (engine: MatchEngine) => {
+  const maxSteps = Math.ceil(
+    (POWER_DRAIN_WARNING_MS + POWER_DRAIN_DURATION_MS + FIXED_STEP_MS) / FIXED_STEP_MS,
+  );
+  for (let steps = 0; steps < maxSteps && engine.getSnapshot().phase === 'resolving'; steps += 1) {
+    engine.step(FIXED_STEP_MS);
+  }
+  expect(engine.getSnapshot().phase).not.toBe('resolving');
+};
 
 describe('MatchEngine', () => {
   it('registers the five Vault cards with their exact combat definitions and portrait frames', () => {
@@ -197,6 +227,25 @@ describe('MatchEngine', () => {
     expect(snapshot.towers.filter((tower) => tower.team === 'player')).toHaveLength(3);
     expect(snapshot.towers.filter((tower) => tower.team === 'enemy')).toHaveLength(3);
     expect(snapshot.towers.filter((tower) => tower.kind === 'core')).toHaveLength(2);
+  });
+
+  it('emits authoritative match-start and card-selection presentation events once', () => {
+    const events: GameEvent[] = [];
+    const engine = new MatchEngine((event) => events.push(event));
+
+    expect(engine.dispatch({ type: 'start' })).toBe(true);
+    const selectedCard = engine.getSnapshot().hands.player[0]!;
+    expect(engine.dispatch({ type: 'select', cardId: selectedCard })).toBe(true);
+    expect(engine.dispatch({ type: 'select', cardId: null })).toBe(true);
+    expect(engine.dispatch({ type: 'restart' })).toBe(true);
+
+    expect(events.filter((event) => event.type === 'matchStarted')).toEqual([
+      { type: 'matchStarted', modeId: 'core-siege', restart: false },
+      { type: 'matchStarted', modeId: 'core-siege', restart: true },
+    ]);
+    expect(events.filter((event) => event.type === 'cardSelected')).toEqual([
+      { type: 'cardSelected', team: 'player', cardId: selectedCard },
+    ]);
   });
 
   it('configures each player Relay with a distinct weapon tradeoff and splash behavior', () => {
@@ -513,6 +562,14 @@ describe('MatchEngine', () => {
       relayHpMultiplier: 0.72,
       relayScoreLimit: 2,
     });
+    expect(GAME_MODES['best-of-three']).toMatchObject({
+      durationMs: 180_000,
+      startingCharge: 5,
+      chargeRegenPerSecond: 0.4,
+      overclockThresholdMs: 60_000,
+      relayHpMultiplier: 1,
+      series: { maxRounds: 3, winsRequired: 2 },
+    });
 
     const turbo = new MatchEngine();
     startWithDeck(turbo, DEFAULT_PLAYER_DECK, 'turbo-grid');
@@ -601,6 +658,330 @@ describe('MatchEngine', () => {
       result: { winner: 'player', reason: 'relay', headline: 'RELAYS OVERRUN' },
     });
     expect(events.at(-1)).toMatchObject({ type: 'matchEnded', result: { reason: 'relay' } });
+  });
+
+  it('runs a 2-0 series with ordered lifecycle events and grants the victory bonus only at the clinch', () => {
+    const events: GameEvent[] = [];
+    const engine = new MatchEngine((event) => events.push(event), 2026);
+
+    expect(startBestOfThree(engine)).toBe(true);
+    expect(engine.getSnapshot()).toMatchObject({
+      phase: 'playing',
+      modeId: 'best-of-three',
+      remainingMs: 180_000,
+      score: { player: 0, enemy: 0 },
+      battleScore: { player: 0, enemy: 0 },
+      towerDamage: { player: 0, enemy: 0 },
+      series: {
+        currentRound: 1,
+        maxRounds: 3,
+        winsRequired: 2,
+        wins: { player: 0, enemy: 0 },
+        battleScore: { player: 0, enemy: 0 },
+        roundResult: null,
+      },
+      result: null,
+    });
+    expect(events.map((event) => event.type)).toEqual(['matchStarted', 'roundStarted']);
+
+    winRoundByCore(engine, 'player');
+    expect(engine.getSnapshot()).toMatchObject({
+      phase: 'round-ended',
+      battleScore: { player: 1_500, enemy: 0 },
+      series: {
+        currentRound: 1,
+        wins: { player: 1, enemy: 0 },
+        battleScore: { player: 1_500, enemy: 0 },
+        roundResult: { winner: 'player', reason: 'core' },
+      },
+      result: null,
+    });
+    expect(events.filter((event) => event.type === 'matchEnded')).toHaveLength(0);
+    expect(events.filter((event) => event.type === 'roundEnded')).toEqual([
+      expect.objectContaining({
+        roundNumber: 1,
+        result: expect.objectContaining({ winner: 'player', reason: 'core' }),
+        wins: { player: 1, enemy: 0 },
+        matchComplete: false,
+      }),
+    ]);
+
+    expect(engine.dispatch({ type: 'nextRound' })).toBe(true);
+    expect(engine.getSnapshot()).toMatchObject({
+      phase: 'playing',
+      remainingMs: 180_000,
+      battleScore: { player: 0, enemy: 0 },
+      series: {
+        currentRound: 2,
+        wins: { player: 1, enemy: 0 },
+        battleScore: { player: 1_500, enemy: 0 },
+        roundResult: null,
+      },
+    });
+
+    winRoundByCore(engine, 'player');
+    expect(engine.getSnapshot()).toMatchObject({
+      phase: 'ended',
+      battleScore: { player: 2_500, enemy: 0 },
+      series: {
+        currentRound: 2,
+        wins: { player: 2, enemy: 0 },
+        battleScore: { player: 4_000, enemy: 0 },
+        roundResult: { winner: 'player', reason: 'core' },
+      },
+      result: { winner: 'player', reason: 'round-majority', headline: 'SERIES SECURED' },
+    });
+
+    const lifecycleEvents = events.filter((event) =>
+      event.type === 'matchStarted' ||
+      event.type === 'roundStarted' ||
+      event.type === 'roundEnded' ||
+      event.type === 'matchEnded',
+    );
+    expect(lifecycleEvents.map((event) => event.type)).toEqual([
+      'matchStarted',
+      'roundStarted',
+      'roundEnded',
+      'roundStarted',
+      'roundEnded',
+      'matchEnded',
+    ]);
+    expect(lifecycleEvents.at(-2)).toMatchObject({
+      type: 'roundEnded',
+      roundNumber: 2,
+      wins: { player: 2, enemy: 0 },
+      matchComplete: true,
+    });
+    expect(lifecycleEvents.at(-1)).toMatchObject({
+      type: 'matchEnded',
+      result: { winner: 'player', reason: 'round-majority' },
+    });
+  });
+
+  it('requires a third round after split wins and supports an enemy series clinch', () => {
+    const deciding = new MatchEngine(undefined, 42);
+    startBestOfThree(deciding);
+    winRoundByCore(deciding, 'player');
+    expect(deciding.dispatch({ type: 'nextRound' })).toBe(true);
+    winRoundByCore(deciding, 'enemy');
+    expect(deciding.getSnapshot()).toMatchObject({
+      phase: 'round-ended',
+      series: { currentRound: 2, wins: { player: 1, enemy: 1 } },
+      result: null,
+    });
+    expect(deciding.dispatch({ type: 'nextRound' })).toBe(true);
+    winRoundByCore(deciding, 'player');
+    expect(deciding.getSnapshot()).toMatchObject({
+      phase: 'ended',
+      series: { currentRound: 3, wins: { player: 2, enemy: 1 } },
+      result: { winner: 'player', reason: 'round-majority' },
+    });
+
+    const enemySweep = new MatchEngine(undefined, 43);
+    startBestOfThree(enemySweep);
+    winRoundByCore(enemySweep, 'enemy');
+    expect(enemySweep.dispatch({ type: 'nextRound' })).toBe(true);
+    winRoundByCore(enemySweep, 'enemy');
+    expect(enemySweep.getSnapshot()).toMatchObject({
+      phase: 'ended',
+      series: { currentRound: 2, wins: { player: 0, enemy: 2 } },
+      result: { winner: 'enemy', reason: 'round-majority', headline: 'SERIES LOST' },
+    });
+  });
+
+  it('resets combat state between rounds while preserving series totals and using a distinct round seed', () => {
+    const engine = new MatchEngine(undefined, 8_080);
+    expect(engine.dispatch({
+      type: 'start',
+      config: {
+        modeId: 'best-of-three',
+        playerDeck: PROGRAM_TEST_DECK,
+        playerUpgrades: { zip: { output: 1 } },
+        playerFirmwareBudget: LOBBY_FIRMWARE_BUDGET,
+      },
+    })).toBe(true);
+    const opening = engine.getSnapshot();
+    const state = harness(engine);
+    const selected = opening.hands.player[0];
+    expect(engine.dispatch({ type: 'select', cardId: selected })).toBe(true);
+    expect(engine.dispatch({ type: 'upgradeRobot', team: 'player', robotId: 'zip', stat: 'output' })).toBe(true);
+    state.spawnUnit('player', 'brute', 680, 420);
+    state.placeInstallation('player', 'sentry', 800, 450);
+    state.resolveProgram('player', 'nano', 800, 400);
+    engine.debugDamageTower('enemy-left', 100);
+    winRoundByCore(engine, 'player');
+
+    expect(engine.dispatch({ type: 'nextRound' })).toBe(true);
+    const next = engine.getSnapshot();
+    expect(next).toMatchObject({
+      phase: 'playing',
+      modeId: 'best-of-three',
+      remainingMs: 180_000,
+      charge: { player: 5, enemy: 5 },
+      score: { player: 0, enemy: 0 },
+      battleScore: { player: 0, enemy: 0 },
+      towerDamage: { player: 0, enemy: 0 },
+      selected: null,
+      series: {
+        currentRound: 2,
+        wins: { player: 1, enemy: 0 },
+        battleScore: { player: 1_500, enemy: 0 },
+        roundResult: null,
+      },
+      result: null,
+    });
+    expect(next.decks.player).toEqual(PROGRAM_TEST_DECK);
+    expect(next.hands).not.toEqual(opening.hands);
+    expect(next.next).not.toEqual(opening.next);
+    expect(next.units).toHaveLength(0);
+    expect(next.installations).toHaveLength(0);
+    expect(next.zones).toHaveLength(0);
+    expect(next.towers.every((tower) => tower.hp === tower.maxHp)).toBe(true);
+    expect(next.upgrades.player.zip).toEqual({ output: 1, range: 0, speed: 0 });
+  });
+
+  it('derives repeatable but distinct opening orders for each round', () => {
+    const getOpenings = (seed: number) => {
+      const engine = new MatchEngine(undefined, seed);
+      startBestOfThree(engine, PROGRAM_TEST_DECK);
+      const first = engine.getSnapshot();
+      winRoundByCore(engine, 'player');
+      expect(engine.dispatch({ type: 'nextRound' })).toBe(true);
+      const second = engine.getSnapshot();
+      return {
+        first: { hands: first.hands, next: first.next },
+        second: { hands: second.hands, next: second.next },
+      };
+    };
+
+    const firstRun = getOpenings(31_415);
+    const replay = getOpenings(31_415);
+    expect(replay).toEqual(firstRun);
+    expect(firstRun.second).not.toEqual(firstRun.first);
+  });
+
+  it('uses only current-round Battle Score to break Power Drain ties', () => {
+    const events: GameEvent[] = [];
+    const engine = new MatchEngine((event) => events.push(event), 1);
+    startBestOfThree(engine);
+    winRoundByCore(engine, 'player');
+    expect(engine.dispatch({ type: 'nextRound' })).toBe(true);
+    events.length = 0;
+
+    const state = harness(engine);
+    const victim = state.spawnUnit('player', 'zip', 800, 600);
+    state.damageUnit(victim, victim.hp + victim.shieldHp, 'projectile', 'enemy');
+    expect(engine.getSnapshot()).toMatchObject({
+      battleScore: { player: 0, enemy: 50 },
+      towerDamage: { player: 0, enemy: 0 },
+      series: { battleScore: { player: 1_500, enemy: 50 } },
+    });
+
+    events.length = 0;
+    expireTimer(engine);
+    expect(engine.getSnapshot()).toMatchObject({
+      phase: 'resolving',
+      powerDrain: {
+        stage: 'warning',
+        remainingMs: POWER_DRAIN_WARNING_MS + POWER_DRAIN_DURATION_MS,
+        progress: 0,
+      },
+    });
+    expect(events).toEqual([{
+      type: 'powerDrainStarted',
+      warningMs: POWER_DRAIN_WARNING_MS,
+      durationMs: POWER_DRAIN_DURATION_MS,
+    }]);
+    settlePowerDrain(engine);
+    expect(engine.getSnapshot()).toMatchObject({
+      phase: 'round-ended',
+      battleScore: { player: 0, enemy: 50 },
+      powerDrain: null,
+      series: {
+        currentRound: 2,
+        wins: { player: 1, enemy: 1 },
+        battleScore: { player: 1_500, enemy: 50 },
+        roundResult: { winner: 'enemy', reason: 'power-drain' },
+      },
+      result: null,
+    });
+    expect(events.map((event) => event.type)).toEqual([
+      'powerDrainStarted',
+      'entityDestroyed',
+      'towerDestroyed',
+      'roundEnded',
+    ]);
+    expect(events.at(-1)).toMatchObject({
+      type: 'roundEnded',
+      roundNumber: 2,
+      wins: { player: 1, enemy: 1 },
+      matchComplete: false,
+    });
+    expect(events.filter((event) => event.type === 'matchEnded')).toHaveLength(0);
+
+    expect(engine.dispatch({ type: 'nextRound' })).toBe(true);
+    expect(engine.getSnapshot()).toMatchObject({
+      phase: 'playing',
+      powerDrain: null,
+      series: { currentRound: 3, wins: { player: 1, enemy: 1 }, roundResult: null },
+    });
+    expect(engine.getSnapshot().towers.every((tower) => tower.hp === tower.maxHp)).toBe(true);
+  });
+
+  it('accepts nextRound only between unfinished series rounds', () => {
+    const engine = new MatchEngine();
+    expect(engine.dispatch({ type: 'nextRound' })).toBe(false);
+    startBestOfThree(engine);
+    expect(engine.dispatch({ type: 'nextRound' })).toBe(false);
+    winRoundByCore(engine, 'player');
+    expect(engine.dispatch({ type: 'nextRound' })).toBe(true);
+    expect(engine.dispatch({ type: 'nextRound' })).toBe(false);
+    winRoundByCore(engine, 'player');
+    expect(engine.getSnapshot().phase).toBe('ended');
+    expect(engine.dispatch({ type: 'nextRound' })).toBe(false);
+
+    const singleRound = new MatchEngine();
+    singleRound.dispatch({ type: 'start' });
+    expect(singleRound.dispatch({ type: 'nextRound' })).toBe(false);
+  });
+
+  it('restart and lobby commands clear the entire series rather than only the current round', () => {
+    const engine = new MatchEngine(undefined, 77);
+    startBestOfThree(engine, PROGRAM_TEST_DECK);
+    winRoundByCore(engine, 'player');
+    expect(engine.dispatch({ type: 'nextRound' })).toBe(true);
+
+    expect(engine.dispatch({ type: 'restart' })).toBe(true);
+    expect(engine.getSnapshot()).toMatchObject({
+      phase: 'playing',
+      modeId: 'best-of-three',
+      series: {
+        currentRound: 1,
+        wins: { player: 0, enemy: 0 },
+        battleScore: { player: 0, enemy: 0 },
+        roundResult: null,
+      },
+      result: null,
+    });
+    expect(engine.getSnapshot().decks.player).toEqual(PROGRAM_TEST_DECK);
+
+    winRoundByCore(engine, 'player');
+    expect(engine.dispatch({ type: 'returnToLobby' })).toBe(true);
+    const lobby = engine.getSnapshot();
+    expect(lobby).toMatchObject({
+      phase: 'menu',
+      modeId: 'best-of-three',
+      remainingMs: 180_000,
+      series: {
+        currentRound: 1,
+        wins: { player: 0, enemy: 0 },
+        battleScore: { player: 0, enemy: 0 },
+        roundResult: null,
+      },
+      result: null,
+    });
+    engine.step(1_000);
+    expect(engine.getSnapshot()).toEqual(lobby);
   });
 
   it('opens with mixed tech, spends Charge, deploys by lane, and cycles the hand', () => {
@@ -915,6 +1296,298 @@ describe('MatchEngine', () => {
     });
     expect(engine.dispatch({ type: 'activateOverdrive', team: 'player' })).toBe(false);
     expect(events).toHaveBeenCalledWith({ type: 'playRejected', team: 'player', reason: 'cooldown' });
+  });
+
+  it('tracks actual post-mitigation, non-overkill tower damage and resets the ledger', () => {
+    const engine = new MatchEngine();
+    engine.dispatch({ type: 'start' });
+    const state = harness(engine);
+    const enemyRelay = state.towers.find((tower) => tower.id === 'enemy-left')!;
+    state.placeInstallation('enemy', 'firewall', enemyRelay.x, enemyRelay.y);
+
+    expect(state.damageTower(enemyRelay, 100, 'projectile', 'player')).toBeCloseTo(76, 8);
+    expect(engine.getSnapshot().towerDamage).toEqual({ player: 76, enemy: 0 });
+
+    const remainingHp = enemyRelay.hp;
+    expect(
+      state.damageTower(enemyRelay, Number.MAX_SAFE_INTEGER, 'program', 'player'),
+    ).toBeCloseTo(remainingHp, 8);
+    expect(engine.getSnapshot().towerDamage.player).toBeCloseTo(enemyRelay.maxHp, 8);
+    expect(state.damageTower(enemyRelay, 100, 'projectile', 'player')).toBe(0);
+    expect(engine.getSnapshot().towerDamage.player).toBeCloseTo(enemyRelay.maxHp, 8);
+
+    const playerRelay = state.towers.find((tower) => tower.id === 'player-left')!;
+    expect(state.damageTower(playerRelay, 50, 'decay', 'enemy')).toBe(50);
+    expect(engine.getSnapshot().towerDamage.enemy).toBe(0);
+
+    expect(engine.dispatch({ type: 'restart' })).toBe(true);
+    expect(engine.getSnapshot().towerDamage).toEqual({ player: 0, enemy: 0 });
+  });
+
+  it('lets a destroyed Relay advantage win at timeout even against greater tower damage', () => {
+    const engine = new MatchEngine();
+    engine.dispatch({ type: 'start' });
+
+    engine.debugDamageTower('enemy-left', Number.MAX_SAFE_INTEGER);
+    engine.debugDamageTower('player-left', 1_999);
+    engine.debugDamageTower('player-right', 1_999);
+    expect(engine.getSnapshot()).toMatchObject({
+      score: { player: 1, enemy: 0 },
+      towerDamage: { player: 2_000, enemy: 3_998 },
+    });
+
+    expireTimer(engine);
+
+    expect(engine.getSnapshot()).toMatchObject({
+      phase: 'ended',
+      score: { player: 1, enemy: 0 },
+      result: { winner: 'player', reason: 'timer' },
+    });
+  });
+
+  it('lets concentrated damage empty one tower before greater aggregate damage spread across towers', () => {
+    const events: GameEvent[] = [];
+    const engine = new MatchEngine((event) => events.push(event));
+    engine.dispatch({ type: 'start' });
+    const state = harness(engine);
+    const frozenUnit = state.spawnUnit('player', 'zip', 600, 600);
+    state.placeInstallation('player', 'sentry', 800, 600);
+    const frozenInstallation = state.installations.at(-1)!;
+
+    engine.debugDamageTower('enemy-left', 600);
+    engine.debugDamageTower('enemy-right', 600);
+    engine.debugDamageTower('player-left', 800);
+    expireTimer(engine);
+
+    const resolving = engine.getSnapshot();
+    expect(resolving).toMatchObject({
+      phase: 'resolving',
+      result: null,
+      score: { player: 0, enemy: 0 },
+      battleScore: { player: 0, enemy: 0 },
+      towerDamage: { player: 1_200, enemy: 800 },
+      powerDrain: {
+        stage: 'warning',
+        remainingMs: POWER_DRAIN_WARNING_MS + POWER_DRAIN_DURATION_MS,
+        progress: 0,
+      },
+    });
+    const towerHpAtResolution = Object.fromEntries(
+      resolving.towers.map((tower) => [tower.id, tower.hp]),
+    );
+    const lowestInitialRatio = Math.min(
+      ...resolving.towers.map((tower) => tower.hp / tower.maxHp),
+    );
+    const unitAtResolution = resolving.units.find((unit) => unit.id === frozenUnit.id)!;
+    const installationAtResolution = resolving.installations.find(
+      (installation) => installation.id === frozenInstallation.id,
+    )!;
+    expect(events.filter((event) => event.type === 'powerDrainStarted')).toEqual([{
+      type: 'powerDrainStarted',
+      warningMs: POWER_DRAIN_WARNING_MS,
+      durationMs: POWER_DRAIN_DURATION_MS,
+    }]);
+    events.length = 0;
+
+    advance(engine, POWER_DRAIN_WARNING_MS - FIXED_STEP_MS);
+    const warning = engine.getSnapshot();
+    expect(warning).toMatchObject({
+      phase: 'resolving',
+      powerDrain: {
+        stage: 'warning',
+        remainingMs: POWER_DRAIN_DURATION_MS + FIXED_STEP_MS,
+        progress: 0,
+      },
+    });
+    expect(Object.fromEntries(warning.towers.map((tower) => [tower.id, tower.hp])))
+      .toEqual(towerHpAtResolution);
+    expect(warning.units.find((unit) => unit.id === frozenUnit.id)).toEqual(unitAtResolution);
+    expect(warning.installations.find((installation) => installation.id === frozenInstallation.id))
+      .toEqual(installationAtResolution);
+
+    engine.step(FIXED_STEP_MS);
+    const warningComplete = engine.getSnapshot();
+    expect(warningComplete).toMatchObject({
+      phase: 'resolving',
+      powerDrain: {
+        stage: 'draining',
+        remainingMs: POWER_DRAIN_DURATION_MS,
+        progress: 0,
+      },
+    });
+    expect(Object.fromEntries(warningComplete.towers.map((tower) => [tower.id, tower.hp])))
+      .toEqual(towerHpAtResolution);
+
+    engine.step(FIXED_STEP_MS);
+    const draining = engine.getSnapshot();
+    expect(draining).toMatchObject({
+      phase: 'resolving',
+      powerDrain: {
+        stage: 'draining',
+        remainingMs: POWER_DRAIN_DURATION_MS - FIXED_STEP_MS,
+        progress: FIXED_STEP_MS / POWER_DRAIN_DURATION_MS,
+      },
+    });
+    for (const tower of draining.towers) {
+      const startingRatio = towerHpAtResolution[tower.id] / tower.maxHp;
+      expect(tower.hp / tower.maxHp).toBeCloseTo(
+        startingRatio - lowestInitialRatio * FIXED_STEP_MS / POWER_DRAIN_DURATION_MS,
+        8,
+      );
+    }
+
+    advance(engine, POWER_DRAIN_DURATION_MS / 2 - FIXED_STEP_MS);
+    expect(engine.getSnapshot()).toMatchObject({
+      phase: 'resolving',
+      powerDrain: {
+        stage: 'draining',
+        remainingMs: POWER_DRAIN_DURATION_MS / 2,
+        progress: 0.5,
+      },
+    });
+    expect(events).toHaveLength(0);
+
+    advance(engine, POWER_DRAIN_DURATION_MS / 4);
+    expect(engine.getSnapshot()).toMatchObject({
+      phase: 'resolving',
+      powerDrain: {
+        stage: 'critical',
+        remainingMs: POWER_DRAIN_DURATION_MS / 4,
+        progress: 0.75,
+      },
+    });
+
+    advance(engine, POWER_DRAIN_DURATION_MS / 4 - FIXED_STEP_MS);
+    expect(engine.getSnapshot()).toMatchObject({
+      phase: 'resolving',
+      powerDrain: {
+        stage: 'critical',
+        remainingMs: FIXED_STEP_MS,
+        progress: 1 - FIXED_STEP_MS / POWER_DRAIN_DURATION_MS,
+      },
+    });
+    expect(events).toHaveLength(0);
+
+    engine.step(FIXED_STEP_MS);
+    const ended = engine.getSnapshot();
+    expect(ended).toMatchObject({
+      phase: 'ended',
+      score: { player: 0, enemy: 0 },
+      battleScore: { player: 0, enemy: 1_000 },
+      towerDamage: { player: 1_200, enemy: 800 },
+      powerDrain: null,
+      result: { winner: 'enemy', reason: 'power-drain' },
+    });
+    expect(ended.towers.find((tower) => tower.id === 'player-left')?.hp).toBe(0);
+    expect(ended.towers.filter((tower) => tower.id !== 'player-left').every((tower) => tower.hp > 0))
+      .toBe(true);
+    expect(events.map((event) => event.type)).toEqual([
+      'entityDestroyed',
+      'towerDestroyed',
+      'matchEnded',
+    ]);
+
+    const drainDestructions = events.filter((event) => event.type === 'entityDestroyed');
+    expect(drainDestructions).toEqual([
+      expect.objectContaining({
+        type: 'entityDestroyed',
+        entity: expect.objectContaining({ id: 'player-left' }),
+        cause: 'power-drain',
+      }),
+    ]);
+    expect(drainDestructions[0]).not.toHaveProperty('byTeam');
+    expect(events.filter((event) => event.type === 'towerDestroyed')).toEqual([
+      expect.objectContaining({
+        type: 'towerDestroyed',
+        tower: expect.objectContaining({ id: 'player-left', hp: 0 }),
+      }),
+    ]);
+    expect(events.filter((event) => event.type === 'matchEnded')).toHaveLength(1);
+    expect(events.at(-1)).toMatchObject({
+      type: 'matchEnded',
+      result: { winner: 'enemy', reason: 'power-drain' },
+    });
+  });
+
+  it('uses rounded tower damage before Battle Score when the lowest tower integrity is tied', () => {
+    const engine = new MatchEngine();
+    engine.dispatch({ type: 'start' });
+    const state = harness(engine);
+    engine.debugDamageTower('enemy-left', 1_000);
+    engine.debugDamageTower('player-left', 1_000);
+    engine.debugDamageTower('enemy-core', 0.6);
+    const victim = state.spawnUnit('player', 'zip', 800, 600);
+    state.damageUnit(victim, victim.hp + victim.shieldHp, 'projectile', 'enemy');
+
+    expect(engine.getSnapshot().battleScore).toEqual({ player: 0, enemy: 50 });
+    expect(engine.getSnapshot().towerDamage.player).toBeCloseTo(1_000.6, 8);
+    expect(engine.getSnapshot().towerDamage.enemy).toBe(1_000);
+    expireTimer(engine);
+    expect(engine.getSnapshot().phase).toBe('resolving');
+    settlePowerDrain(engine);
+
+    expect(engine.getSnapshot()).toMatchObject({
+      phase: 'ended',
+      battleScore: { player: 1_000, enemy: 50 },
+      result: {
+        winner: 'player',
+        reason: 'power-drain',
+        detail: 'Lowest tower power was even; 1001–1000 tower damage broke the tie.',
+      },
+    });
+  });
+
+  it('rounds tied tower damage to whole numbers before using Battle Score', () => {
+    const engine = new MatchEngine();
+    engine.dispatch({ type: 'start' });
+    const state = harness(engine);
+    engine.debugDamageTower('enemy-left', 1_000);
+    engine.debugDamageTower('player-left', 1_000);
+    engine.debugDamageTower('enemy-core', 0.4);
+    engine.debugDamageTower('player-core', 0.1);
+    const victim = state.spawnUnit('player', 'zip', 800, 600);
+    state.damageUnit(victim, victim.hp + victim.shieldHp, 'projectile', 'enemy');
+    expect(engine.getSnapshot()).toMatchObject({
+      score: { player: 0, enemy: 0 },
+      battleScore: { player: 0, enemy: 50 },
+    });
+    expect(engine.getSnapshot().towerDamage.player).toBeCloseTo(1_000.4, 8);
+    expect(engine.getSnapshot().towerDamage.enemy).toBeCloseTo(1_000.1, 8);
+
+    expireTimer(engine);
+    expect(engine.getSnapshot().phase).toBe('resolving');
+    settlePowerDrain(engine);
+
+    expect(engine.getSnapshot()).toMatchObject({
+      phase: 'ended',
+      battleScore: { player: 0, enemy: 1_050 },
+      result: {
+        winner: 'enemy',
+        reason: 'power-drain',
+        detail: 'Tower power and damage were even; Battle Score granted the decisive drain pulse.',
+      },
+    });
+  });
+
+  it('uses deterministic seeded initiative when tower damage and Battle Score are exactly tied', () => {
+    const resolveWinner = (seed: number) => {
+      const engine = new MatchEngine(undefined, seed);
+      engine.dispatch({ type: 'start' });
+      expireTimer(engine);
+      expect(engine.getSnapshot().phase).toBe('resolving');
+      settlePowerDrain(engine);
+      const result = engine.getSnapshot().result;
+      expect(result).toMatchObject({
+        reason: 'power-drain',
+        detail: 'Tower power, damage, and Battle Score were even; seeded initiative broke the deadlock.',
+      });
+      expect(result?.winner).not.toBe('draw');
+      return result?.winner;
+    };
+
+    expect(resolveWinner(1)).toBe('player');
+    expect(resolveWinner(2)).toBe('enemy');
+    expect(resolveWinner(1)).toBe('player');
   });
 
   it('scores Relay destruction and ends immediately when the enemy Core is destroyed', () => {

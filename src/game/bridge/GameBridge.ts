@@ -35,7 +35,12 @@ export class GameBridge {
     const accepted = this.engine.dispatch(command);
     if (
       accepted &&
-      (command.type === 'start' || command.type === 'restart' || command.type === 'returnToLobby')
+      (
+        command.type === 'start' ||
+        command.type === 'restart' ||
+        command.type === 'nextRound' ||
+        command.type === 'returnToLobby'
+      )
     ) {
       this.accumulator = 0;
     }
@@ -44,7 +49,10 @@ export class GameBridge {
   }
 
   tick(deltaMs: number): void {
-    if (this.disposed || this.snapshot.phase !== 'playing') {
+    if (
+      this.disposed ||
+      (this.snapshot.phase !== 'playing' && this.snapshot.phase !== 'resolving')
+    ) {
       this.accumulator = 0;
       return;
     }
@@ -66,6 +74,11 @@ export class GameBridge {
 
   debugDamageTower(id: string, amount: number): void {
     this.engine.debugDamageTower(id, amount);
+    this.publishSnapshot();
+  }
+
+  debugExpireTimer(): void {
+    this.engine.debugExpireTimer();
     this.publishSnapshot();
   }
 

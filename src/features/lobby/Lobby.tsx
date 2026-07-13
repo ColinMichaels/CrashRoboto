@@ -61,8 +61,8 @@ export interface LobbyProps {
   onReset: () => void;
   onPrepareLaunch: () => void;
   onLaunch: () => void;
-  muted: boolean;
-  onToggleMute: () => void;
+  sfxMuted: boolean;
+  onToggleSfxMute: () => void;
 }
 
 const CATEGORY_LABELS: Record<CardCategory, string> = {
@@ -76,6 +76,7 @@ const MODE_META: Record<GameModeId, string> = {
   'core-siege': 'BALANCED',
   'turbo-grid': 'HIGH CHARGE',
   'relay-rush': 'FIRST TO 2',
+  'best-of-three': 'FIRST TO 2',
 };
 
 const LOBBY_CARDS = Object.values(CARDS);
@@ -84,6 +85,12 @@ const RELAY_LANES: Lane[] = ['left', 'right'];
 function formatDuration(durationMs: number): string {
   const seconds = Math.round(durationMs / 1_000);
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+function formatModeDuration(modeId: GameModeId): string {
+  const mode = GAME_MODES[modeId];
+  const duration = formatDuration(mode.durationMs);
+  return mode.series ? `${mode.series.maxRounds} × ${duration}` : duration;
 }
 
 function LogoMark() {
@@ -122,6 +129,17 @@ function ModeIcon({ mode }: { mode: GameModeId }) {
     return (
       <svg viewBox="0 0 48 48" aria-hidden="true">
         <path d="M14 43V7m1 2c10-7 13 7 23 0v20c-10 7-13-7-23 0" />
+      </svg>
+    );
+  }
+
+  if (mode === 'best-of-three') {
+    return (
+      <svg viewBox="0 0 48 48" aria-hidden="true">
+        <circle cx="13" cy="24" r="6" />
+        <circle cx="24" cy="13" r="6" />
+        <circle cx="35" cy="24" r="6" />
+        <path d="M13 30v8h22v-8M24 19v19" />
       </svg>
     );
   }
@@ -224,16 +242,20 @@ function CardChip({ card, upgrades, collectionEntry, locked = false, selected = 
           {onInspect ? 'LAB' : 'INTEL'}
         </button>
       )}
+      {!onInspect && !onIntel && <span className="lobby-card-action-spacer" aria-hidden="true" />}
     </div>
   );
 }
 
 function EmptyLoadoutSlot({ index }: { index: number }) {
   return (
-    <div className="lobby-card lobby-card-loadout is-empty" aria-label={`Loadout slot ${index + 1}, empty`}>
-      <span className="empty-slot-index">{String(index + 1).padStart(2, '0')}</span>
-      <span className="empty-slot-mark" aria-hidden="true" />
-      <span className="lobby-card-name">EMPTY</span>
+    <div className="lobby-card-shell lobby-card-shell-loadout">
+      <div className="lobby-card lobby-card-loadout is-empty" aria-label={`Loadout slot ${index + 1}, empty`}>
+        <span className="empty-slot-index">{String(index + 1).padStart(2, '0')}</span>
+        <span className="empty-slot-mark" aria-hidden="true" />
+        <span className="lobby-card-name">EMPTY</span>
+      </div>
+      <span className="lobby-card-action-spacer" aria-hidden="true" />
     </div>
   );
 }
@@ -302,8 +324,8 @@ export function Lobby({
   onReset,
   onPrepareLaunch,
   onLaunch,
-  muted,
-  onToggleMute,
+  sfxMuted,
+  onToggleSfxMute,
 }: LobbyProps) {
   const modeHeadingId = useId();
   const launchHintId = useId();
@@ -447,11 +469,13 @@ export function Lobby({
           <button
             className="lobby-sound-button"
             type="button"
-            onClick={onToggleMute}
-            aria-label={muted ? 'Unmute sound' : 'Mute sound'}
-            aria-pressed={muted}
+            onClick={onToggleSfxMute}
+            aria-label={sfxMuted ? 'Unmute sound effects' : 'Mute sound effects'}
+            aria-pressed={sfxMuted}
+            title="Sound effects mute (Shift+M)"
+            data-testid="sfx-mute-toggle"
           >
-            <SoundIcon muted={muted} />
+            <SoundIcon muted={sfxMuted} />
           </button>
           <button
             ref={pilotTriggerRef}
@@ -521,6 +545,7 @@ export function Lobby({
           {GAME_MODE_IDS.map((modeId, index) => {
             const mode = GAME_MODES[modeId];
             const selected = selectedMode === modeId;
+            const durationLabel = formatModeDuration(modeId);
             return (
               <button
                 key={modeId}
@@ -529,14 +554,14 @@ export function Lobby({
                 role="radio"
                 aria-checked={selected}
                 tabIndex={selected ? 0 : -1}
-                aria-label={`${mode.name}. ${formatDuration(mode.durationMs)}. ${MODE_META[modeId]}. ${mode.description}`}
+                aria-label={`${mode.name}. ${durationLabel}. ${MODE_META[modeId]}. ${mode.description}`}
                 onClick={() => chooseMode(modeId)}
                 onKeyDown={(event) => navigateModes(event, index)}
               >
                 <span className="lobby-mode-icon"><ModeIcon mode={modeId} /></span>
                 <span className="lobby-mode-copy">
                   <strong>{mode.name}</strong>
-                  <span>{formatDuration(mode.durationMs)} <i>•</i> {MODE_META[modeId]}</span>
+                  <span>{durationLabel} <i>•</i> {MODE_META[modeId]}</span>
                 </span>
                 <span className="lobby-mode-chevron" aria-hidden="true">
                   <svg viewBox="0 0 18 30"><path d="m3 3 11 12L3 27" /></svg>
