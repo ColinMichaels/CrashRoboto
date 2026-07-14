@@ -37,6 +37,7 @@ import {
   ARENA_UNIT_DISPLAY_HEIGHT_RATIO,
   getArenaUnitBodyOriginY,
   getArenaUnitFrame,
+  getArenaUnitFrameOffset,
   getArenaUnitTextureKey,
   getInitialArenaUnitDirection,
   resolveUnitPose,
@@ -392,6 +393,14 @@ export class BattleScene extends Scene {
     const leanStrength = unit.kind === 'drone' ? 0.055 : unit.kind === 'brute' || unit.kind === 'vector' ? 0.032 : 0.04;
     const lean = moving ? gaitWave * leanStrength * (flipX ? -1 : 1) : 0;
     const heightScale = moving ? 1 - 0.0125 * (1 - Math.cos(gaitTheta)) : 1;
+    const frameOffset = getArenaUnitFrameOffset(
+      unit.kind,
+      pose.direction,
+      pose.gaitFrame,
+      size,
+      displayHeight * heightScale,
+      flipX,
+    );
 
     motion.previousX = unit.x;
     motion.previousY = unit.y;
@@ -404,7 +413,7 @@ export class BattleScene extends Scene {
 
     sprite
       .setFrame(pose.frame)
-      .setPosition(unit.x, unit.y + bob)
+      .setPosition(unit.x + frameOffset.x, unit.y + bob + frameOffset.y)
       .setDisplaySize(size, displayHeight * heightScale)
       .setDepth(5 + unit.y / 1000)
       .setRotation(lean)
