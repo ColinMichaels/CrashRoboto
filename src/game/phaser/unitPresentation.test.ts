@@ -19,6 +19,7 @@ import {
   UNIT_MOVEMENT_GRACE_MS,
   getArenaUnitBodyOriginY,
   getArenaUnitFrame,
+  getArenaUnitFrameOffset,
   getArenaUnitFrames,
   getArenaUnitGaitFrame,
   getArenaUnitGaitPhase,
@@ -101,6 +102,38 @@ describe('unit presentation', () => {
     expect(selectArenaUnitDirection(0, 'away')).toBe('away');
     expect(selectArenaUnitDirection(Math.PI, 'toward')).toBe('toward');
     expect(selectArenaUnitDirection(Number.NaN, 'away')).toBe('away');
+  });
+
+  it('uses movement rather than combat aim to choose front or back artwork', () => {
+    const stationaryPulseAimingTowardPlayer = resolveUnitPose({
+      ...basePoseInput,
+      unitId: 'player-pulse-1',
+      kind: 'pulse',
+      facing: Math.PI / 2,
+      previousDirection: 'away',
+    });
+    expect(stationaryPulseAimingTowardPlayer.direction).toBe('away');
+    expect(stationaryPulseAimingTowardPlayer.frame).toBe(getArenaUnitFrame('pulse', 'away', 0));
+
+    const advancingPulseAimingTowardPlayer = resolveUnitPose({
+      ...basePoseInput,
+      unitId: 'player-pulse-1',
+      kind: 'pulse',
+      facing: Math.PI / 2,
+      y: basePoseInput.y - 1,
+      previousDirection: 'toward',
+    });
+    expect(advancingPulseAimingTowardPlayer.direction).toBe('away');
+
+    const retreatingPulseAimingAway = resolveUnitPose({
+      ...basePoseInput,
+      unitId: 'player-pulse-1',
+      kind: 'pulse',
+      facing: -Math.PI / 2,
+      y: basePoseInput.y + 1,
+      previousDirection: 'away',
+    });
+    expect(retreatingPulseAimingAway.direction).toBe('toward');
   });
 
   it('mirrors lateral travel without flickering on near-vertical headings', () => {
@@ -186,6 +219,21 @@ describe('unit presentation', () => {
       expect(resolved.gaitFrame).toBe(expectedGaitFrame);
       expect(resolved.frame).toBe(getArenaUnitFrame(kind, 'away', expectedGaitFrame));
     }
+  });
+
+  it('stabilizes generated gait frames without adding runtime texture frames', () => {
+    expect(getArenaUnitFrameOffset('vector', 'away', 0, 170, 170)).toEqual({ x: 0, y: 0 });
+    expect(getArenaUnitFrameOffset('vector', 'away', 1, 170, 170)).toEqual({ x: 10, y: 0 });
+    expect(getArenaUnitFrameOffset('vector', 'away', 2, 170, 170)).toEqual({ x: 5, y: 0 });
+    expect(getArenaUnitFrameOffset('vector', 'away', 1, 85, 85, true)).toEqual({ x: -5, y: 0 });
+
+    expect(getArenaUnitFrameOffset('viper', 'away', 1, 256, 341)).toEqual({ x: 16, y: -6 });
+    expect(getArenaUnitFrameOffset('viper', 'away', 2, 128, 170.5)).toEqual({ x: 19.5, y: -5 });
+    expect(getArenaUnitFrameOffset('viper', 'toward', 2, 256, 341, true)).toEqual({ x: -32, y: -5 });
+
+    expect(getArenaUnitFrameOffset('zip', 'toward', 1, 170, 170)).toEqual({ x: 20, y: 0 });
+    expect(getArenaUnitFrameOffset('microbot', 'away', 2, 170, 170)).toEqual({ x: 5, y: 0 });
+    expect(getArenaUnitFrameOffset('zip', 'away', 1, Number.NaN, Number.NaN)).toEqual({ x: 0, y: 0 });
   });
 
   it('uses stable sub-frame start delays so same-kind units do not all move in lockstep', () => {
