@@ -38,9 +38,10 @@ Firewall Node	Card-selection cue, placement, matrix expansion, persistent aura h
 
 The Foundry-generated Microbots also need a small spawn chirp, lightweight movement, attack, and destruction sound, even though they are not a playable card.
 Music triggers
-Two tracks already exist in [musicCatalog.ts (line 22)](/Users/colin/Documents/Crash Roboto/src/audio/musicCatalog.ts:22):
-Lobby entrance/loop
-Main battle track
+Four tracks are declared in [musicCatalog.ts (line 22)](/Users/colin/Documents/Crash Roboto/src/audio/musicCatalog.ts:22):
+
+- Lobby entrance and relaxed 8-bit lobby tracks
+- Main battle theme and 8-bit battle mashup
 Recommended custom music package:
 Trigger	Music required	Behavior
 App launch or return to lobby	Lobby loop — exists	Start from beginning and loop seamlessly

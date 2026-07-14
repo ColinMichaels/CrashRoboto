@@ -9,9 +9,9 @@ The app has two independent audio channels:
 
 The bundled playlist is declared in `src/audio/musicCatalog.ts`. Music URLs must use `import.meta.env.BASE_URL`; the deployed app uses a relative Vite base for GitHub Pages. The music console can also load several local audio files as a session-only playlist. Object URLs are released when the playlist is replaced or the app closes, so local files are never uploaded or persisted.
 
-The initial theme is `public/assets/audio/music/crash-roboto.mp3` with its embedded cover extracted to `crash-roboto-cover.jpg`. A valid **Deploy Loadout** gesture starts playback whenever music is unmuted; unmuting during a match starts it then. The explicit play control is also available, satisfying normal browser autoplay restrictions. A one-track playlist loops; a multi-track playlist advances and wraps.
+The lobby rotation contains `crash-roboto-lobby-entrance.mp3` and `crash-roboto-lobby-relaxed-8bit.mp3`. The battle rotation contains `crash-roboto.mp3` and `crash-roboto-battle-mashup-8bit.mp3`; all four use `crash-roboto-cover.jpg`. A valid **Deploy Loadout** gesture starts playback whenever music is unmuted; unmuting during a match starts it then. The explicit play control is also available, satisfying normal browser autoplay restrictions. Each two-track playlist advances and wraps.
 
-Music and SFX levels are independently adjustable from the signal mixer. New players start at 10% music and 60% SFX; valid stored preferences—including intentional 0%—are preserved. Muting never changes either saved level, so players can set safe levels while a channel remains muted.
+Music and SFX levels are independently adjustable from the signal mixer. New players start at 7.5% music and 25% SFX; valid stored preferences—including intentional 0%—are preserved. Muting never changes either saved level, so players can set safe levels while a channel remains muted.
 
 ## Recorded voices and SFX
 
