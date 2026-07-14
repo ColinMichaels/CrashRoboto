@@ -19,6 +19,11 @@ export type ArenaUnitDirection = 'away' | 'toward';
 export type ArenaUnitGaitFrame = 0 | 1 | 2;
 export type ArenaUnitPoseState = 'moving' | 'settling' | 'idle' | 'paused' | 'disabled' | 'dead';
 
+export interface ArenaUnitFrameOffset {
+  x: number;
+  y: number;
+}
+
 export const ARENA_UNIT_GAIT_FRAME_COUNT = 3;
 
 /**
@@ -136,6 +141,73 @@ export const ARENA_UNIT_DISPLAY_HEIGHT_RATIO: Readonly<Record<RobotKind, number>
   viper: 0.82,
   microbot: 0.82,
 };
+
+type ArenaUnitFrameOffsets = Readonly<Record<
+  ArenaUnitDirection,
+  readonly [ArenaUnitFrameOffset, ArenaUnitFrameOffset, ArenaUnitFrameOffset]
+>>;
+
+const COMMON_ARENA_UNIT_FRAME_OFFSETS: ArenaUnitFrameOffsets = {
+  away: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 5, y: 0 }],
+  toward: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 5, y: 0 }],
+};
+
+/**
+ * Source-pixel registration corrections for atlas rows whose generated poses
+ * do not share a stable chassis center or ground contact. Keeping these as
+ * render offsets avoids duplicating texture frames or increasing draw calls.
+ */
+const ARENA_UNIT_FRAME_OFFSET_OVERRIDES: Partial<
+  Readonly<Record<RobotKind, ArenaUnitFrameOffsets>>
+> = {
+  zip: {
+    away: COMMON_ARENA_UNIT_FRAME_OFFSETS.away,
+    toward: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 10, y: 0 }],
+  },
+  swarm: {
+    away: COMMON_ARENA_UNIT_FRAME_OFFSETS.away,
+    toward: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 10, y: 0 }],
+  },
+  aegis: {
+    away: [{ x: 0, y: 0 }, { x: 10, y: 5 }, { x: 36, y: 6 }],
+    toward: [{ x: 0, y: 0 }, { x: 17, y: 5 }, { x: 23, y: -1 }],
+  },
+  wraith: {
+    away: [{ x: 0, y: 0 }, { x: 12, y: 0 }, { x: 43, y: 0 }],
+    toward: [{ x: 0, y: 0 }, { x: 17, y: 0 }, { x: 23, y: 0 }],
+  },
+  viper: {
+    away: [{ x: 0, y: 0 }, { x: 16, y: -6 }, { x: 39, y: -10 }],
+    toward: [{ x: 0, y: 0 }, { x: 13, y: -5 }, { x: 32, y: -5 }],
+  },
+};
+
+export function getArenaUnitFrameOffset(
+  kind: RobotKind,
+  direction: ArenaUnitDirection,
+  gaitFrame: ArenaUnitGaitFrame,
+  displayWidth: number,
+  displayHeight: number,
+  flipped = false,
+): ArenaUnitFrameOffset {
+  const sourceOffset = (
+    ARENA_UNIT_FRAME_OFFSET_OVERRIDES[kind] ?? COMMON_ARENA_UNIT_FRAME_OFFSETS
+  )[direction][gaitFrame];
+  const sourceWidth = (VAULT_UNIT_KINDS as readonly RobotKind[]).includes(kind)
+    ? VAULT_UNIT_ATLAS_FRAME_WIDTH
+    : ARENA_UNIT_ATLAS_FRAME_SIZE;
+  const sourceHeight = (VAULT_UNIT_KINDS as readonly RobotKind[]).includes(kind)
+    ? VAULT_UNIT_ATLAS_FRAME_HEIGHT
+    : ARENA_UNIT_ATLAS_FRAME_SIZE;
+  const safeDisplayWidth = Number.isFinite(displayWidth) ? Math.abs(displayWidth) : 0;
+  const safeDisplayHeight = Number.isFinite(displayHeight) ? Math.abs(displayHeight) : 0;
+  const x = sourceOffset.x * safeDisplayWidth / sourceWidth;
+
+  return {
+    x: flipped ? -x : x,
+    y: sourceOffset.y * safeDisplayHeight / sourceHeight,
+  };
+}
 
 export function getInitialArenaUnitDirection(team: Team): ArenaUnitDirection {
   return team === 'player' ? 'away' : 'toward';
@@ -292,8 +364,14 @@ export interface ResolvedUnitPose {
  */
 export function resolveUnitPose(input: ResolveUnitPoseInput): ResolvedUnitPose {
   const fallbackDirection = input.previousDirection ?? getInitialArenaUnitDirection(input.team);
-  const direction = selectArenaUnitDirection(input.facing, fallbackDirection);
   const moved = hasArenaUnitMoved(input.x, input.y, input.previousX, input.previousY);
+  // Combat targeting also updates `facing`, including while a unit is standing
+  // still. Front/back gait artwork should follow actual travel so a deployed
+  // player bot keeps looking upfield unless it physically retreats downfield.
+  const movementFacing = moved
+    ? Math.atan2(input.y - input.previousY, input.x - input.previousX)
+    : Number.NaN;
+  const direction = selectArenaUnitDirection(movementFacing, fallbackDirection);
   const movingUntilMs = moved
     ? input.nowMs + UNIT_MOVEMENT_GRACE_MS
     : input.movingUntilMs;
