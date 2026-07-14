@@ -33,6 +33,8 @@ const DEFERRED_ASSET_PATHS = [
   'assets/game/vault-unit-sprites.webp',
   'assets/game/bonus-cache-open.webp',
   'assets/audio/music/crash-roboto.mp3',
+  'assets/audio/music/crash-roboto-battle-mashup-8bit.mp3',
+  'assets/audio/music/crash-roboto-lobby-relaxed-8bit.mp3',
 ] as const;
 
 // Decoded lobby images and byte-warmed match files share the browser cache but

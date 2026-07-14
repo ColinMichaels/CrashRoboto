@@ -51,7 +51,7 @@ Deploying a changed loadout performs one final manifest check before the match s
 - Placement previews report the selected lane, attack or ability range, enemy tower coverage, insufficient Charge, locked territory, and physical obstructions before a card is dropped.
 - Use the lobby's Balanced, Rush, Siege, and Control presets or follow the live deck advisor when a loadout lacks openers, area control, support, Installations, or structure pressure.
 - Choose **TRAINING** in the lobby for an action-driven tutorial covering Firmware, launch, card selection, deployment, and Relay breaches.
-- Use the audio console to play the bundled **Crash Roboto** theme, adjust music and SFX independently, or load multiple locally exported audio files as a temporary playlist. Both levels default to a safer 50% for new players and persist separately.
+- Use the audio console to play the bundled **Crash Roboto** theme, adjust music and SFX independently, or load multiple locally exported audio files as a temporary playlist. New players start at 7.5% music and 25% SFX, and both levels persist separately.
 - Music and synthesized sound effects have separate mute controls and persist independently between sessions.
 - Every playable card has an original short robot-voice acknowledgement; successful deployment, shared gun/rocket/flame weapons, programs, Installations, destruction, match start, tower loss, victory, defeat, and draw have dedicated procedural cues.
 - Use a robot card's **LAB** control to inspect its abilities, range, output, and speed.
@@ -122,8 +122,10 @@ For a reproducible local match, add a positive integer seed to the URL, such as 
 - `src/game/phaser/` owns the deck-aware asset manifest and renders the arena, perspective units, projectiles, impacts, and destruction effects.
 - `src/features/` contains pilot presentation, the Command Lobby, battle HUD, card presentation, progression/reward ownership, overlays, and Robot Lab.
 - `src/audio/` owns synthesized effects, music playback, and the bundled music manifest; `src/features/audio/` owns the player UI and session playlist importer.
-- `src/app/` composes the application, persists preferences/loadouts, and lazy-loads the Phaser battle bundle.
+- `src/persistence/` contains defensive browser-storage adapters for preferences, progression, collection, and loadouts.
+- `src/app/` composes the application and lazy-loads the Phaser battle bundle.
 - `public/assets/game/` contains editable PNG sources and optimized WebP runtime assets, while `public/assets/audio/music/` contains the bundled soundtrack. Early visual studies and the legacy flat board live in `docs/concepts/` so they are not copied into production builds.
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for state ownership, runtime flow, and extension notes.
+See [`docs/EXTENDING.md`](docs/EXTENDING.md) for dependency boundaries and step-by-step addon checklists.
 See [`docs/AUDIO.md`](docs/AUDIO.md) for the Suno integration decision, playlist workflow, and sample-replacement plan.

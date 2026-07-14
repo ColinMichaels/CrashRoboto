@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { readCardCollection, saveCardCollection } from '../../app/cardCollectionStorage';
-import { readPlayerProgress, savePlayerProgress } from '../../app/playerProgressStorage';
+import { readCardCollection, saveCardCollection } from '../../persistence/cardCollectionStorage';
+import { readPlayerProgress, savePlayerProgress } from '../../persistence/playerProgressStorage';
 import {
   applyVictoryChests,
   generateVictoryChests,
@@ -8,6 +8,7 @@ import {
 } from '../../game/core/collection';
 import { getMatchProgressAward, type MatchProgressAward } from '../../game/core/progression';
 import type { MatchSnapshot } from '../../game/core/types';
+import { collectVictoryCaches } from './cacheCollection';
 
 const rewardRandom = (): number => (
   window.crypto.getRandomValues(new Uint32Array(1))[0] / 0x1_0000_0000
@@ -18,12 +19,49 @@ export function useMatchRewards(snapshot: MatchSnapshot) {
   const [lastProgressAward, setLastProgressAward] = useState<MatchProgressAward | null>(null);
   const [cardCollection, setCardCollection] = useState(readCardCollection);
   const [lastCacheReward, setLastCacheReward] = useState<AppliedVictoryChests | null>(null);
+  const [collectedCacheCount, setCollectedCacheCount] = useState(0);
   const awardedMatchRevisionRef = useRef(-1);
+  const cardCollectionRef = useRef(cardCollection);
+  const collectedCacheCountRef = useRef(0);
+
+  useEffect(() => {
+    cardCollectionRef.current = cardCollection;
+  }, [cardCollection]);
 
   const clearMatchRewards = useCallback(() => {
     setLastProgressAward(null);
     setLastCacheReward(null);
+    collectedCacheCountRef.current = 0;
+    setCollectedCacheCount(0);
   }, []);
+
+  const commitCacheCollection = useCallback((requestedCount: number): boolean => {
+    if (!lastCacheReward) return false;
+    const transition = collectVictoryCaches(
+      cardCollectionRef.current,
+      lastCacheReward,
+      collectedCacheCountRef.current,
+      requestedCount,
+    );
+    if (transition.collectedCount === collectedCacheCountRef.current) return false;
+
+    saveCardCollection(transition.collection);
+    cardCollectionRef.current = transition.collection;
+    setCardCollection(transition.collection);
+    collectedCacheCountRef.current = transition.collectedCount;
+    setCollectedCacheCount(transition.collectedCount);
+    return true;
+  }, [lastCacheReward]);
+
+  const collectCache = useCallback((cacheIndex: number): boolean => {
+    if (!lastCacheReward || cacheIndex !== collectedCacheCountRef.current) return false;
+    return commitCacheCollection(cacheIndex + 1);
+  }, [commitCacheCollection, lastCacheReward]);
+
+  const collectAllCaches = useCallback((): boolean => {
+    if (!lastCacheReward) return false;
+    return commitCacheCollection(lastCacheReward.reveals.length);
+  }, [commitCacheCollection, lastCacheReward]);
 
   useEffect(() => {
     if (
@@ -46,8 +84,8 @@ export function useMatchRewards(snapshot: MatchSnapshot) {
     if (snapshot.result.winner === 'player') {
       const chests = generateVictoryChests(cardCollection, rewardRandom);
       const applied = applyVictoryChests(cardCollection, chests);
-      saveCardCollection(applied.collection);
-      setCardCollection(applied.collection);
+      collectedCacheCountRef.current = 0;
+      setCollectedCacheCount(0);
       setLastCacheReward(applied);
     } else {
       setLastCacheReward(null);
@@ -68,6 +106,9 @@ export function useMatchRewards(snapshot: MatchSnapshot) {
     cardCollection,
     lastProgressAward,
     lastCacheReward,
+    collectedCacheCount,
+    collectCache,
+    collectAllCaches,
     clearMatchRewards,
   };
 }

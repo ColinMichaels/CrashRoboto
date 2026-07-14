@@ -1,13 +1,9 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { MusicEngine } from '../audio/MusicEngine';
-import { SoundEngine } from '../audio/SoundEngine';
-import { DEFAULT_SFX_VOLUME, parseAudioVolumePreference } from '../audio/audioVolume';
 import {
-  getBundledLobbyMusicPlaylist,
-  getBundledMusicPlaylist,
-  parseMusicVolumePreference,
-  type MusicTrack,
-} from '../audio/musicCatalog';
+  BATTLE_MUSIC_PLAYLIST,
+  LOBBY_MUSIC_PLAYLIST,
+  useGameAudio,
+} from '../features/audio/useGameAudio';
 import { GameBridge } from '../game/bridge/GameBridge';
 import type {
   CardId,
@@ -43,9 +39,9 @@ import {
   getPlayerLevel,
 } from '../game/core/progression';
 import { DECK_PRESETS, type DeckPresetId } from '../game/core/deckGuidance';
-import { readStorageItem, writeStorageItem } from './browserStorage';
+import { readStorageItem, writeStorageItem } from '../persistence/browserStorage';
 import type { GameCanvasHandle } from './GameCanvas';
-import { readLobbyLoadout, resetLobbyLoadout, saveLobbyLoadout } from './loadoutStorage';
+import { readLobbyLoadout, resetLobbyLoadout, saveLobbyLoadout } from '../persistence/loadoutStorage';
 import {
   loadGameCanvasModule,
   prepareMatchAssets,
@@ -54,14 +50,7 @@ import {
 import { GameLoadingScreen } from './GameLoadingScreen';
 
 const GameCanvas = lazy(() => loadGameCanvasModule().then((module) => ({ default: module.GameCanvas })));
-const LEGACY_MUTE_STORAGE_KEY = 'crash-roboto-muted';
-const SFX_MUTE_STORAGE_KEY = 'crash-roboto-sfx-muted';
-const MUSIC_MUTE_STORAGE_KEY = 'crash-roboto-music-muted';
-const MUSIC_VOLUME_STORAGE_KEY = 'crash-roboto-music-volume';
-const SFX_VOLUME_STORAGE_KEY = 'crash-roboto-sfx-volume';
 const TUTORIAL_STORAGE_KEY = 'crash-roboto-tutorial-complete';
-const BATTLE_MUSIC_PLAYLIST = getBundledMusicPlaylist();
-const LOBBY_MUSIC_PLAYLIST = getBundledLobbyMusicPlaylist();
 const POWER_DRAIN_PREVIEW_ENABLED = import.meta.env.DEV &&
   new URLSearchParams(window.location.search).get('preview') === 'power-drain';
 
@@ -79,20 +68,6 @@ const IDLE_ARENA_LOAD: ArenaLoadState = {
   error: null,
 };
 
-function readMutePreference(key: string): boolean {
-  const stored = readStorageItem(key);
-  if (stored !== null) return stored === 'true';
-  return readStorageItem(LEGACY_MUTE_STORAGE_KEY) === 'true';
-}
-
-function readMusicVolume(): number {
-  return parseMusicVolumePreference(readStorageItem(MUSIC_VOLUME_STORAGE_KEY));
-}
-
-function readSfxVolume(): number {
-  return parseAudioVolumePreference(readStorageItem(SFX_VOLUME_STORAGE_KEY), DEFAULT_SFX_VOLUME);
-}
-
 function readSeed() {
   const value = new URLSearchParams(window.location.search).get('seed');
   const seed = Number(value);
@@ -103,15 +78,24 @@ function readSeed() {
 
 export function App() {
   const bridge = useMemo(() => new GameBridge(readSeed()), []);
-  const sound = useMemo(() => new SoundEngine({ volume: readSfxVolume() }), []);
-  const music = useMemo(() => new MusicEngine(LOBBY_MUSIC_PLAYLIST, { volume: readMusicVolume() }), []);
   const snapshot = useGameSnapshot(bridge);
+  const {
+    sound,
+    music,
+    sfxMuted,
+    sfxVolume,
+    musicMuted,
+    audioMuted,
+    startMusicPlaylist,
+    toggleSfxMute,
+    toggleMusicMute,
+    toggleAudioMute,
+    changeMusicVolume,
+    changeSfxVolume,
+  } = useGameAudio(bridge, snapshot.phase);
   const gameCanvasRef = useRef<GameCanvasHandle>(null);
   const dragOriginRef = useRef<{ cardId: CardId; x: number; y: number } | null>(null);
   const labTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const [sfxMuted, setSfxMuted] = useState(() => readMutePreference(SFX_MUTE_STORAGE_KEY));
-  const [sfxVolume, setSfxVolume] = useState(() => sound.getVolume());
-  const [musicMuted, setMusicMuted] = useState(() => readMutePreference(MUSIC_MUTE_STORAGE_KEY));
   const [inspectedRobot, setInspectedRobot] = useState<RobotCardId | null>(null);
   const [arenaLoad, setArenaLoad] = useState<ArenaLoadState>(IDLE_ARENA_LOAD);
   const {
@@ -119,6 +103,9 @@ export function App() {
     cardCollection,
     lastProgressAward,
     lastCacheReward,
+    collectedCacheCount,
+    collectCache,
+    collectAllCaches,
     clearMatchRewards,
   } = useMatchRewards(snapshot);
   const [tutorialStep, setTutorialStep] = useState<TutorialStep | null>(null);
@@ -126,8 +113,6 @@ export function App() {
   const [lobbyLoadout, setLobbyLoadout] = useState(readLobbyLoadout);
   const tutorialFirmwareBaselineRef = useRef(0);
   const snapshotRef = useRef(snapshot);
-  const previousPhaseRef = useRef(snapshot.phase);
-  const resumeMusicAfterPauseRef = useRef(false);
   const firmwareSpent = useMemo(
     () => ROBOT_CARD_IDS.reduce((total, robotId) => {
       const upgrades = lobbyLoadout.upgrades[robotId];
@@ -138,7 +123,6 @@ export function App() {
   const playerLevel = getPlayerLevel(playerProgress.xp);
   const firmwareBudget = getFirmwareBudgetForLevel(playerLevel);
   const firmwareRemaining = Math.max(0, firmwareBudget - firmwareSpent);
-  const audioMuted = sfxMuted && musicMuted;
 
   snapshotRef.current = snapshot;
 
@@ -146,48 +130,6 @@ export function App() {
   const select = useCallback((cardId: CardId) => {
     dispatch({ type: 'select', cardId: snapshot.selected === cardId ? null : cardId });
   }, [dispatch, snapshot.selected]);
-
-  const toggleSfxMute = useCallback(() => {
-    if (sfxMuted) sound.unlock();
-    setSfxMuted((current) => !current);
-  }, [sfxMuted, sound]);
-
-  const toggleMusicMute = useCallback(() => {
-    const phase = snapshotRef.current.phase;
-    if (musicMuted) {
-      if (phase === 'paused') resumeMusicAfterPauseRef.current = true;
-      else if (phase === 'menu' || phase === 'playing' || phase === 'resolving' || phase === 'round-ended') {
-        void music.play();
-      }
-    }
-    setMusicMuted((current) => !current);
-  }, [music, musicMuted]);
-
-  const toggleAudioMute = useCallback(() => {
-    const nextMuted = !(sfxMuted && musicMuted);
-    if (!nextMuted) {
-      sound.unlock();
-      const phase = snapshotRef.current.phase;
-      if (phase === 'paused') resumeMusicAfterPauseRef.current = true;
-      else if (phase === 'menu' || phase === 'playing' || phase === 'resolving' || phase === 'round-ended') {
-        void music.play();
-      }
-    }
-    setSfxMuted(nextMuted);
-    setMusicMuted(nextMuted);
-  }, [music, musicMuted, sfxMuted, sound]);
-
-  const changeMusicVolume = useCallback((volume: number) => {
-    music.setVolume(volume);
-    writeStorageItem(MUSIC_VOLUME_STORAGE_KEY, String(music.getSnapshot().volume));
-  }, [music]);
-
-  const changeSfxVolume = useCallback((volume: number) => {
-    sound.setVolume(volume);
-    const nextVolume = sound.getVolume();
-    setSfxVolume(nextVolume);
-    writeStorageItem(SFX_VOLUME_STORAGE_KEY, String(nextVolume));
-  }, [sound]);
 
   const selectMode = useCallback((modeId: GameModeId) => {
     sound.playInterfaceSound('modeSelect');
@@ -284,13 +226,6 @@ export function App() {
     setLobbyLoadout(resetLobbyLoadout());
   }, [sound]);
 
-  const startMusicPlaylist = useCallback((playlist: readonly MusicTrack[]) => {
-    resumeMusicAfterPauseRef.current = false;
-    music.pause();
-    music.setPlaylist(playlist);
-    if (!musicMuted) void music.play();
-  }, [music, musicMuted]);
-
   const prepareArena = useCallback((onProgress?: (progress: AssetLoadProgress) => void) => (
     prepareMatchAssets({
       player: lobbyLoadout.deck,
@@ -364,19 +299,21 @@ export function App() {
   const returnToLobby = useCallback(() => {
     dragOriginRef.current = null;
     setInspectedRobot(null);
+    collectAllCaches();
     clearMatchRewards();
     setArenaLoad(IDLE_ARENA_LOAD);
     startMusicPlaylist(LOBBY_MUSIC_PLAYLIST);
     dispatch({ type: 'returnToLobby' });
-  }, [clearMatchRewards, dispatch, startMusicPlaylist]);
+  }, [clearMatchRewards, collectAllCaches, dispatch, startMusicPlaylist]);
 
   const restartMatch = useCallback(() => {
     dragOriginRef.current = null;
     setInspectedRobot(null);
+    collectAllCaches();
     clearMatchRewards();
     startMusicPlaylist(BATTLE_MUSIC_PLAYLIST);
     dispatch({ type: 'restart' });
-  }, [clearMatchRewards, dispatch, startMusicPlaylist]);
+  }, [clearMatchRewards, collectAllCaches, dispatch, startMusicPlaylist]);
 
   const nextRound = useCallback(() => {
     dragOriginRef.current = null;
@@ -429,52 +366,6 @@ export function App() {
     playDraggedCard(drag.cardId, clientX, clientY);
   }, [playDraggedCard]);
 
-  useEffect(() => {
-    void sound.preload();
-  }, [sound]);
-  useEffect(() => {
-    sound.setMuted(sfxMuted);
-    writeStorageItem(SFX_MUTE_STORAGE_KEY, String(sfxMuted));
-  }, [sfxMuted, sound]);
-  useEffect(() => {
-    music.setMuted(musicMuted);
-    writeStorageItem(MUSIC_MUTE_STORAGE_KEY, String(musicMuted));
-  }, [music, musicMuted]);
-  useEffect(() => {
-    const previousPhase = previousPhaseRef.current;
-    previousPhaseRef.current = snapshot.phase;
-
-    if (snapshot.phase === 'ended' && previousPhase !== 'ended') {
-      resumeMusicAfterPauseRef.current = false;
-      music.stop();
-      return;
-    }
-
-    if (
-      snapshot.phase === 'menu' &&
-      previousPhase !== 'menu' &&
-      music.getSnapshot().currentTrack?.id !== LOBBY_MUSIC_PLAYLIST[0]?.id
-    ) {
-      startMusicPlaylist(LOBBY_MUSIC_PLAYLIST);
-      return;
-    }
-
-    if (snapshot.phase === 'paused' && previousPhase !== 'paused') {
-      resumeMusicAfterPauseRef.current = music.getSnapshot().isPlaying;
-      music.pause();
-      sound.pause();
-      return;
-    }
-
-    if (previousPhase === 'paused' && snapshot.phase !== 'paused') {
-      sound.resume();
-      if (snapshot.phase === 'playing' && resumeMusicAfterPauseRef.current && !musicMuted) {
-        void music.play();
-      }
-      resumeMusicAfterPauseRef.current = false;
-    }
-  }, [music, musicMuted, snapshot.phase, sound, startMusicPlaylist]);
-  useEffect(() => bridge.subscribeToEvents((event) => sound.playEvent(event)), [bridge, sound]);
   useEffect(() => saveLobbyLoadout(lobbyLoadout), [lobbyLoadout]);
   useEffect(() => {
     setLobbyLoadout((current) => {
@@ -560,11 +451,7 @@ export function App() {
     };
     return () => { delete window.__CRASH_ROBOTO__; };
   }, [bridge]);
-  useEffect(() => () => {
-    bridge.dispose();
-    music.dispose();
-    sound.dispose();
-  }, [bridge, music, sound]);
+  useEffect(() => () => bridge.dispose(), [bridge]);
 
   return (
     <main className="app-shell">
@@ -634,6 +521,9 @@ export function App() {
               onReturnToLobby={returnToLobby}
               progressAward={lastProgressAward}
               cacheReward={lastCacheReward}
+              collectedCacheCount={collectedCacheCount}
+              onCollectCache={collectCache}
+              onCollectAllCaches={collectAllCaches}
             />
           </>
         )}

@@ -897,12 +897,12 @@ button.lobby-card:hover:not(:disabled) {
   font-weight: 900;
 }
 
-.lobby-card-lab-button {
+.lobby-card-deck-button {
   position: absolute;
   top: 5%;
   right: 5%;
   z-index: 8;
-  min-width: clamp(23px, 2.2vw, 35px);
+  min-width: clamp(30px, 2.8vw, 44px);
   padding: 0.28em 0.42em;
   border: 1px solid rgba(var(--lobby-card-rgb, 40, 231, 210), 0.68);
   background: rgba(3, 15, 19, 0.94);
@@ -915,11 +915,11 @@ button.lobby-card:hover:not(:disabled) {
   clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px);
 }
 
-.lobby-card-shell-loadout .lobby-card-lab-button {
+.lobby-card-shell-loadout .lobby-card-deck-button {
   top: 4%;
 }
 
-.lobby-card-shell-loadout.has-lab .lobby-card-order {
+.lobby-card-shell-loadout.has-deck-action .lobby-card-order {
   right: auto;
   left: 50%;
   transform: translateX(-50%);
@@ -941,10 +941,18 @@ button.lobby-card:hover:not(:disabled) {
   width: 74%;
 }
 
-.lobby-card-lab-button:hover {
+.lobby-card-deck-button:hover:not(:disabled),
+.lobby-card-deck-button:focus-visible:not(:disabled) {
   border-color: var(--lobby-card-accent, var(--cyan));
   background: var(--lobby-card-accent, var(--cyan));
   color: #031216;
+}
+
+.lobby-card-deck-button:disabled {
+  border-color: rgba(120, 145, 143, 0.28);
+  color: #60716f;
+  cursor: not-allowed;
+  filter: grayscale(0.75);
 }
 
 .lobby-card-upgrade-badge {
@@ -1056,6 +1064,63 @@ button.lobby-card:hover:not(:disabled) {
 
 .lobby-archive-panel {
   grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.lobby-collection-heading {
+  gap: clamp(8px, 1vw, 16px);
+}
+
+.lobby-collection-heading-copy {
+  display: grid;
+  min-width: 0;
+  gap: 0.2em;
+}
+
+.lobby-collection-heading-copy small {
+  color: #688784;
+  font-size: clamp(0.24rem, 0.4vw, 0.42rem);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.lobby-collection-ledger {
+  display: grid;
+  min-width: min(58%, 430px);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 1px solid rgba(91, 198, 190, 0.2);
+  background: rgba(2, 11, 15, 0.56);
+}
+
+.lobby-collection-ledger > span {
+  display: grid;
+  min-width: 0;
+  justify-items: center;
+  gap: 0.12em;
+  padding: 0.35em 0.55em;
+}
+
+.lobby-collection-ledger > span + span {
+  border-left: 1px solid rgba(91, 198, 190, 0.17);
+}
+
+.lobby-collection-ledger small {
+  color: #70928f;
+  font-size: clamp(0.22rem, 0.36vw, 0.38rem);
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.lobby-collection-ledger strong {
+  color: #e2f5f2;
+  font-size: clamp(0.38rem, 0.64vw, 0.66rem);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+}
+
+.lobby-collection-ledger .is-firmware strong {
+  color: var(--cyan);
 }
 
 .lobby-archive-grid {
@@ -1814,7 +1879,7 @@ button.lobby-card:hover:not(:disabled) {
     font-size: 0.38rem;
   }
 
-  .lobby-card-lab-button {
+  .lobby-card-deck-button {
     min-width: 19px;
     padding: 0.22em 0.3em;
     font-size: clamp(0.23rem, 0.8vw, 0.34rem);
@@ -2206,7 +2271,7 @@ button.lobby-card:hover:not(:disabled) {
     grid-row: 1;
   }
 
-  .lobby-card-lab-button {
+  .lobby-card-deck-button {
     position: static;
     width: 100%;
     min-width: 0;
@@ -2215,6 +2280,20 @@ button.lobby-card:hover:not(:disabled) {
     grid-row: 2;
     font-size: 0.5rem;
     letter-spacing: 0.12em;
+  }
+
+  .lobby-collection-heading {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .lobby-collection-heading-copy small {
+    white-space: normal;
+  }
+
+  .lobby-collection-ledger {
+    width: 100%;
+    min-width: 0;
   }
 
   .lobby-card-action-spacer {

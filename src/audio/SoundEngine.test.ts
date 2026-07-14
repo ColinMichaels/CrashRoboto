@@ -146,13 +146,13 @@ function renderEvent(event: GameEvent): FakeAudioContext {
 }
 
 describe('SoundEngine', () => {
-  it('starts at the tuned 60% level relative to the SFX ceiling', () => {
+  it('starts at the tuned 25% level relative to the SFX ceiling', () => {
     const context = new FakeAudioContext();
     const engine = new SoundEngine({ createContext: () => context as unknown as AudioContext });
 
-    expect(engine.getVolume()).toBe(0.6);
+    expect(engine.getVolume()).toBe(0.25);
     engine.blip();
-    expect(context.gains[0]?.gain.value).toBeCloseTo(0.58 * 0.6);
+    expect(context.gains[0]?.gain.value).toBeCloseTo(0.58 * 0.25);
 
     engine.dispose();
   });

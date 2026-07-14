@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import { getCardSpriteStyle } from '../cards/cardPresentation';
 import { CardCollectionPanel } from '../cards/CardCollectionPanel';
 import { getRobotUpgradeBadgeInfo, UpgradeBadge } from '../cards/UpgradeBadge';
@@ -13,9 +13,7 @@ import {
 import { getXpForLevel, MAX_PLAYER_LEVEL } from '../../game/core/progression';
 import {
   getCardCopyRequirement,
-  getUnlockedCardIds,
   isCardUnlocked,
-  VAULT_CARD_IDS,
   type CardCollection,
   type CardCollectionEntry,
 } from '../../game/core/collection';
@@ -162,14 +160,14 @@ interface CardChipProps {
   locked?: boolean;
   selected?: boolean;
   selectedIndex?: number;
-  disabled?: boolean;
+  deckActionDisabled?: boolean;
   variant: 'loadout' | 'archive';
-  onClick: (trigger: HTMLButtonElement) => void;
-  onInspect?: (trigger: HTMLButtonElement) => void;
-  onIntel?: (trigger: HTMLButtonElement) => void;
+  onOpen: (trigger: HTMLButtonElement) => void;
+  onDeckAction?: (trigger: HTMLButtonElement) => void;
+  deckAction?: 'add' | 'remove';
 }
 
-function CardChip({ card, upgrades, collectionEntry, locked = false, selected = false, selectedIndex, disabled = false, variant, onClick, onInspect, onIntel }: CardChipProps) {
+function CardChip({ card, upgrades, collectionEntry, locked = false, selected = false, selectedIndex, deckActionDisabled = false, variant, onOpen, onDeckAction, deckAction }: CardChipProps) {
   const upgradeBadge = getRobotUpgradeBadgeInfo(upgrades);
   const copyRequirement = getCardCopyRequirement(collectionEntry.level);
   const masteryCopy = collectionEntry.level > 0 ? ` Permanent Mastery Mark ${collectionEntry.level}.` : '';
@@ -179,22 +177,17 @@ function CardChip({ card, upgrades, collectionEntry, locked = false, selected = 
   const selectionCopy = selectedIndex === undefined ? '' : ` Selected in loadout slot ${selectedIndex + 1}.`;
   const actionCopy = locked
     ? ` Locked with ${collectionEntry.copies} of ${copyRequirement ?? 0} fragments. Activate to inspect.`
-    : variant === 'loadout'
-    ? ' Activate to remove from the loadout.'
-    : selected
-      ? ' Activate to remove from the loadout.'
-      : disabled
-        ? ' Loadout is full.'
-        : ' Activate to add to the loadout.';
+    : ' Activate to open card stats and mastery details.';
+  const deckActionLabel = deckAction === 'remove'
+    ? `Remove ${card.name} from the active loadout`
+    : `Add ${card.name} to the active loadout`;
 
   return (
-    <div className={`lobby-card-shell lobby-card-shell-${variant}${onInspect || onIntel ? ' has-lab' : ''} category-${card.category}`}>
+    <div className={`lobby-card-shell lobby-card-shell-${variant}${onDeckAction ? ' has-deck-action' : ''} category-${card.category}`}>
       <button
         className={`lobby-card lobby-card-${variant} category-${card.category}${selected ? ' is-selected' : ''}${locked ? ' is-vault-locked' : ''}`}
         type="button"
-        onClick={(event) => onClick(event.currentTarget)}
-        disabled={disabled}
-        aria-pressed={variant === 'archive' ? selected : undefined}
+        onClick={(event) => onOpen(event.currentTarget)}
         aria-label={`${card.name}, ${CATEGORY_LABELS[card.category].toLowerCase()}, costs ${card.cost} charge.${masteryCopy}${upgradeCopy}${selectionCopy}${actionCopy}`}
         title={`${card.name} — ${card.description}`}
       >
@@ -216,19 +209,19 @@ function CardChip({ card, upgrades, collectionEntry, locked = false, selected = 
             <small>{collectionEntry.copies} / {copyRequirement}</small>
           </span>
         )}
-        {selected && variant === 'archive' && !onInspect && <span className="lobby-card-check" aria-hidden="true">✓</span>}
       </button>
-      {(onInspect || onIntel) && (
+      {onDeckAction && deckAction && (
         <button
-          className="lobby-card-lab-button"
+          className="lobby-card-deck-button"
           type="button"
-          onClick={(event) => (onInspect ?? onIntel)?.(event.currentTarget)}
-          aria-label={onInspect ? `Open lobby Robot Lab for ${card.name}` : `Open card intel for ${card.name}`}
+          onClick={(event) => onDeckAction(event.currentTarget)}
+          aria-label={deckActionLabel}
+          disabled={deckActionDisabled}
         >
-          {onInspect ? 'LAB' : 'INTEL'}
+          {deckAction === 'remove' ? 'REMOVE' : 'ADD'}
         </button>
       )}
-      {!onInspect && !onIntel && <span className="lobby-card-action-spacer" aria-hidden="true" />}
+      {!onDeckAction && <span className="lobby-card-action-spacer" aria-hidden="true" />}
     </div>
   );
 }
@@ -331,6 +324,18 @@ export function Lobby({
   const levelXp = playerXp - currentLevelXp;
   const levelXpTarget = Math.max(0, nextLevelXp - currentLevelXp);
   const deckGuidance = getDeckGuidance(selectedDeck);
+  const collectionSummary = useMemo(() => {
+    let unlocked = 0;
+    let fragments = 0;
+    let masteryMarks = 0;
+    for (const cardId of Object.keys(collection) as CardId[]) {
+      const entry = collection[cardId];
+      if (entry.level > 0) unlocked += 1;
+      fragments += entry.copies;
+      masteryMarks += entry.level;
+    }
+    return { unlocked, fragments, masteryMarks };
+  }, [collection]);
   const selectedModeDefinition = GAME_MODES[selectedMode];
   const selectedPilotDefinition = PILOTS[selectedPilot];
   const lobbyStyle = {
@@ -431,13 +436,10 @@ export function Lobby({
     });
   };
 
-  const toggleArchiveCard = (cardId: CardId, trigger: HTMLButtonElement) => {
+  const toggleArchiveCard = (cardId: CardId) => {
     const selectedIndex = selectedDeck.indexOf(cardId);
     const card = CARDS[cardId];
-    if (!isCardUnlocked(collection, cardId)) {
-      inspectCollectionCard(cardId, trigger);
-      return;
-    }
+    if (!isCardUnlocked(collection, cardId)) return;
     onToggleCard(cardId);
     setAnnouncement(selectedIndex >= 0
       ? `${card.name} removed. ${Math.max(0, selectedDeck.length - 1)} of ${DECK_SIZE} chips selected.`
@@ -614,13 +616,11 @@ export function Lobby({
                       selected
                       selectedIndex={index}
                       variant="loadout"
-                      onClick={() => removeLoadoutCard(cardId, index)}
-                      onInspect={card.category === 'unit' || card.category === 'commander'
-                        ? (trigger) => inspectRobot(cardId as RobotCardId, trigger)
-                        : undefined}
-                      onIntel={VAULT_CARD_IDS.includes(cardId as (typeof VAULT_CARD_IDS)[number]) && card.category !== 'unit' && card.category !== 'commander'
-                        ? (trigger) => inspectCollectionCard(cardId, trigger)
-                        : undefined}
+                      onOpen={(trigger) => card.category === 'unit' || card.category === 'commander'
+                        ? inspectRobot(cardId as RobotCardId, trigger)
+                        : inspectCollectionCard(cardId, trigger)}
+                      deckAction="remove"
+                      onDeckAction={() => removeLoadoutCard(cardId, index)}
                     />
                   ) : <EmptyLoadoutSlot index={index} />}
                 </div>
@@ -630,16 +630,27 @@ export function Lobby({
         </section>
 
         <section className="lobby-panel lobby-archive-panel" aria-labelledby="chip-archive-title">
-          <div className="lobby-panel-heading">
-            <h2 id="chip-archive-title">CHIP ARCHIVE</h2>
-            <span>{getUnlockedCardIds(collection).length} / {LOBBY_CARDS.length} UNLOCKED</span>
+          <div className="lobby-panel-heading lobby-collection-heading">
+            <div className="lobby-collection-heading-copy">
+              <h2 id="chip-archive-title">CHIP COLLECTION</h2>
+              <small>CARD ART OPENS INTEL · DECK BUTTON EDITS LOADOUT</small>
+            </div>
+            <div
+              className="lobby-collection-ledger"
+              aria-label={`${collectionSummary.unlocked} of ${LOBBY_CARDS.length} cards unlocked. ${collectionSummary.fragments} fragments banked. ${firmwareRemaining} of ${firmwareBudget} firmware available. ${collectionSummary.masteryMarks} total mastery marks.`}
+            >
+              <span><small>CARDS</small><strong>{collectionSummary.unlocked}/{LOBBY_CARDS.length}</strong></span>
+              <span><small>FRAGMENTS</small><strong>{collectionSummary.fragments}</strong></span>
+              <span className="is-firmware"><small>FIRMWARE READY</small><strong>{firmwareRemaining}/{firmwareBudget}</strong></span>
+              <span><small>MASTERY</small><strong>{collectionSummary.masteryMarks}</strong></span>
+            </div>
           </div>
           <div className="lobby-archive-grid" role="list" aria-label="Available command chips">
             {LOBBY_CARDS.map((card) => {
               const selectedIndex = selectedDeck.indexOf(card.id);
               const selected = selectedIndex >= 0;
               const locked = !isCardUnlocked(collection, card.id);
-              const disabled = deckFull && !selected && !locked;
+              const deckActionDisabled = deckFull && !selected && !locked;
               return (
                 <div className="lobby-archive-item" role="listitem" key={card.id}>
                   <CardChip
@@ -651,15 +662,13 @@ export function Lobby({
                       : undefined}
                     selected={selected}
                     selectedIndex={selected ? selectedIndex : undefined}
-                    disabled={disabled}
+                    deckActionDisabled={deckActionDisabled}
                     variant="archive"
-                    onClick={(trigger) => toggleArchiveCard(card.id, trigger)}
-                    onInspect={!locked && (card.category === 'unit' || card.category === 'commander')
-                      ? (trigger) => inspectRobot(card.id as RobotCardId, trigger)
-                      : undefined}
-                    onIntel={!locked && VAULT_CARD_IDS.includes(card.id as (typeof VAULT_CARD_IDS)[number]) && card.category !== 'unit' && card.category !== 'commander'
-                      ? (trigger) => inspectCollectionCard(card.id, trigger)
-                      : undefined}
+                    onOpen={(trigger) => !locked && (card.category === 'unit' || card.category === 'commander')
+                      ? inspectRobot(card.id as RobotCardId, trigger)
+                      : inspectCollectionCard(card.id, trigger)}
+                    deckAction={selected ? 'remove' : 'add'}
+                    onDeckAction={locked ? undefined : () => toggleArchiveCard(card.id)}
                   />
                 </div>
               );

@@ -10,6 +10,9 @@ import { getCardSpriteStyle } from '../cards/cardPresentation';
 
 interface VictoryCacheOverlayProps {
   reward: AppliedVictoryChests;
+  collectedCount: number;
+  onCollect: (cacheIndex: number) => void;
+  onCollectAll: () => void;
   onContinue: () => void;
 }
 
@@ -34,12 +37,13 @@ function rewardProgress(reward: CardRewardReveal): string {
   return `${reward.before.copies} / ${beforeRequirement ?? afterRequirement} → ${reward.after.copies} / ${afterRequirement}`;
 }
 
-export function VictoryCacheOverlay({ reward, onContinue }: VictoryCacheOverlayProps) {
+export function VictoryCacheOverlay({ reward, collectedCount, onCollect, onCollectAll, onContinue }: VictoryCacheOverlayProps) {
   const [chestIndex, setChestIndex] = useState(0);
   const primaryRef = useRef<HTMLButtonElement>(null);
   const chest = reward.reveals[chestIndex];
   const finalChest = chestIndex >= reward.reveals.length - 1;
   const nextChest = reward.reveals[chestIndex + 1];
+  const collected = chestIndex < collectedCount;
 
   useEffect(() => {
     setChestIndex(0);
@@ -51,14 +55,23 @@ export function VictoryCacheOverlay({ reward, onContinue }: VictoryCacheOverlayP
 
   if (!chest) return null;
 
-  const openNext = () => {
+  const performPrimaryAction = () => {
+    if (!collected) {
+      onCollect(chestIndex);
+      return;
+    }
     if (finalChest) onContinue();
     else setChestIndex((current) => Math.min(reward.reveals.length - 1, current + 1));
   };
 
+  const collectAllAndContinue = () => {
+    onCollectAll();
+    onContinue();
+  };
+
   return (
     <section
-      className={`victory-cache-overlay cache-tier-${chest.tier}`}
+      className={`victory-cache-overlay cache-tier-${chest.tier}${collected ? ' is-collected' : ''}`}
       role="dialog"
       aria-modal="true"
       aria-labelledby="victory-cache-title"
@@ -85,7 +98,10 @@ export function VictoryCacheOverlay({ reward, onContinue }: VictoryCacheOverlayP
       </div>
 
       <div className="victory-cache-rewards" aria-live="polite" aria-label={`${TIER_LABELS[chest.tier]} rewards`}>
-        <h3>CACHE REWARDS</h3>
+        <h3>
+          <span>CACHE REWARDS</span>
+          <strong>{collected ? 'ITEMS SECURED' : 'AWAITING COLLECTION'}</strong>
+        </h3>
         {chest.rewards.map((item, index) => {
           const card = CARDS[item.cardId];
           const requirement = getCardCopyRequirement(item.after.level);
@@ -111,11 +127,11 @@ export function VictoryCacheOverlay({ reward, onContinue }: VictoryCacheOverlayP
       </div>
 
       <footer>
-        <button ref={primaryRef} className="primary-action compact" type="button" onClick={openNext}>
-          {finalChest ? 'SECURE & CONTINUE' : 'OPEN NEXT CACHE'}
+        <button ref={primaryRef} className="primary-action compact" type="button" onClick={performPrimaryAction} data-testid="collect-cache">
+          {!collected ? 'COLLECT ITEMS' : finalChest ? 'CONTINUE TO LOBBY' : 'OPEN NEXT CACHE'}
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13m-5-5 5 5-5 5" /></svg>
         </button>
-        <button className="secondary-action" type="button" onClick={onContinue}>CONTINUE TO LOBBY</button>
+        <button className="secondary-action" type="button" onClick={collectAllAndContinue}>COLLECT ALL & CONTINUE</button>
       </footer>
     </section>
   );

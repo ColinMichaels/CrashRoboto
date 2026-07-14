@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_MUSIC_VOLUME,
   getBundledLobbyMusicPlaylist,
+  getBundledMusicPlaylist,
   getTrackTitleFromFilename,
   parseMusicVolumePreference,
 } from './musicCatalog';
@@ -9,8 +10,8 @@ import { DEFAULT_SFX_VOLUME, parseAudioVolumePreference } from './audioVolume';
 
 describe('music catalog helpers', () => {
   it('uses the audible default when no music level has been stored', () => {
-    expect(DEFAULT_MUSIC_VOLUME).toBe(0.1);
-    expect(DEFAULT_SFX_VOLUME).toBe(0.6);
+    expect(DEFAULT_MUSIC_VOLUME).toBe(0.075);
+    expect(DEFAULT_SFX_VOLUME).toBe(0.25);
     expect(parseMusicVolumePreference(null)).toBe(DEFAULT_MUSIC_VOLUME);
     expect(parseMusicVolumePreference('not-a-level')).toBe(DEFAULT_MUSIC_VOLUME);
   });
@@ -34,11 +35,28 @@ describe('music catalog helpers', () => {
     expect(getTrackTitleFromFilename('neon_grid-final_mix.mp3')).toBe('neon grid final mix');
   });
 
-  it('provides the dedicated looping lobby track', () => {
+  it('provides separate two-track lobby and battle rotations', () => {
     expect(getBundledLobbyMusicPlaylist('/game')).toEqual([
       expect.objectContaining({
         id: 'crash-roboto-lobby-entrance',
         src: '/game/assets/audio/music/crash-roboto-lobby-entrance.mp3',
+        source: 'bundled',
+      }),
+      expect.objectContaining({
+        id: 'crash-roboto-lobby-relaxed-8bit',
+        src: '/game/assets/audio/music/crash-roboto-lobby-relaxed-8bit.mp3',
+        source: 'bundled',
+      }),
+    ]);
+    expect(getBundledMusicPlaylist('/game')).toEqual([
+      expect.objectContaining({
+        id: 'crash-roboto-theme',
+        src: '/game/assets/audio/music/crash-roboto.mp3',
+        source: 'bundled',
+      }),
+      expect.objectContaining({
+        id: 'crash-roboto-battle-mashup-8bit',
+        src: '/game/assets/audio/music/crash-roboto-battle-mashup-8bit.mp3',
         source: 'bundled',
       }),
     ]);

@@ -14,6 +14,9 @@ interface GameOverlayProps {
   onReturnToLobby: () => void;
   progressAward: MatchProgressAward | null;
   cacheReward: AppliedVictoryChests | null;
+  collectedCacheCount: number;
+  onCollectCache: (cacheIndex: number) => void;
+  onCollectAllCaches: () => void;
 }
 
 function getLowestTowerPower(snapshot: MatchSnapshot, team: Team): number {
@@ -27,7 +30,7 @@ function getLowestTowerPower(snapshot: MatchSnapshot, team: Team): number {
   return found ? Math.max(0, Math.min(1, lowest)) : 0;
 }
 
-export function GameOverlay({ snapshot, pilotId, onRestart, onResume, onNextRound, onReturnToLobby, progressAward, cacheReward }: GameOverlayProps) {
+export function GameOverlay({ snapshot, pilotId, onRestart, onResume, onNextRound, onReturnToLobby, progressAward, cacheReward, collectedCacheCount, onCollectCache, onCollectAllCaches }: GameOverlayProps) {
   const primaryActionRef = useRef<HTMLButtonElement>(null);
   const [showCache, setShowCache] = useState(false);
 
@@ -138,7 +141,15 @@ export function GameOverlay({ snapshot, pilotId, onRestart, onResume, onNextRoun
   }
 
   if (snapshot.phase === 'ended' && showCache && cacheReward) {
-    return <VictoryCacheOverlay reward={cacheReward} onContinue={onReturnToLobby} />;
+    return (
+      <VictoryCacheOverlay
+        reward={cacheReward}
+        collectedCount={collectedCacheCount}
+        onCollect={onCollectCache}
+        onCollectAll={onCollectAllCaches}
+        onContinue={onReturnToLobby}
+      />
+    );
   }
 
   if (snapshot.phase === 'paused') {
@@ -208,8 +219,10 @@ export function GameOverlay({ snapshot, pilotId, onRestart, onResume, onNextRoun
         ) : (
           <button ref={primaryActionRef} className="primary-action compact" type="button" onClick={onRestart} data-testid="restart-match">RUN IT BACK</button>
         )}
-        {cacheReward && <button className="secondary-action" type="button" onClick={onRestart} data-testid="restart-match">RUN IT BACK</button>}
-        <button className="secondary-action" type="button" onClick={onReturnToLobby}>EDIT LOADOUT</button>
+        {cacheReward && <button className="secondary-action" type="button" onClick={onRestart} data-testid="restart-match">COLLECT ALL & RUN IT BACK</button>}
+        <button className="secondary-action" type="button" onClick={onReturnToLobby}>
+          {cacheReward ? 'COLLECT ALL & EDIT LOADOUT' : 'EDIT LOADOUT'}
+        </button>
       </div>
     </section>
   );
