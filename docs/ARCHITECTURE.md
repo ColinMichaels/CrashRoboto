@@ -16,15 +16,17 @@ The Phaser runtime is isolated in its own vendor chunk and loaded only when the 
 
 - `MatchEngine`: decks, shuffled queues, charge, the configured Firmware baseline, battle upgrades, units, installations, zones, towers, timers, round and series scoring, Tower Damage, independent-tower Power Drain, and results.
 - `GameBridge`: subscriptions, command forwarding, accumulator resets at round boundaries, and fixed-step frame advancement through both active combat and endgame resolution.
-- React: lobby draft, stored preferences, selected Robot Lab/card-intel panel, music-player presentation, drag origin, and modal focus.
-- `useMatchRewards`: persistent player progress, card collection, once-per-match reward claims, and immutable Victory Cache reveals.
+- React: lobby draft, selected Robot Lab/card-intel panel, music-player presentation, drag origin, and modal focus.
+- `useGameAudio`: browser audio engines, mixer preference persistence, match-event subscription, phase-driven playback, and audio lifecycle.
+- `useMatchRewards`: persistent player progress, card collection, once-per-match reward generation, and staged Victory Cache claims.
+- `persistence/`: defensive browser-storage access plus schema-specific normalization for loadouts, progression, and collections. Audio preferences use the same guarded access through `useGameAudio`.
 - `BattleScene`: visual objects keyed to engine entity IDs; it never decides combat outcomes.
 - `SoundEngine`: a priority-aware Web Audio mixer with UI, robot-voice, combat, and critical buses; it owns SFX mute, logical-voice limits, deterministic noise, cue throttling, and audio-context lifecycle.
 - `MusicEngine`: the app-level playlist, streamed media element, playback position, music level/mute state, and track lifecycle. It is intentionally independent from Phaser so the theme can play in the lobby before the arena bundle loads.
 
-Loadout persistence stores the selected pilot and protocol independently from the last valid eight-card deck. Removing a card can therefore create a temporary lobby draft without erasing the last playable loadout. Firmware allocations are validated against the active robot cards and the six-point budget before they are persisted or accepted by the match engine. Card collection persistence is a separate normalized record: starter cards can never be relocked by partial or corrupt data, while Vault fragments and Mastery levels can evolve without changing the loadout schema.
+Loadout persistence stores the selected pilot and protocol independently from the last valid eight-card deck. Removing a card can therefore create a temporary lobby draft without erasing the last playable loadout. Firmware allocations are validated against the active robot cards and the player's level-based budget before they are persisted or accepted by the match engine. Card collection persistence is a separate normalized record: starter cards can never be relocked by partial or corrupt data, while Vault fragments and Mastery levels can evolve without changing the loadout schema.
 
-Victory Cache generation lives outside `MatchEngine`. Match simulation stays seeded and replayable; `useMatchRewards` ignores round intermissions and claims a win reward once per final ended revision, applies it to the collection immediately, saves it, and then presents the immutable before/after reveal. The animation can therefore be closed or interrupted without losing or rerolling the reward.
+Victory Cache generation lives outside `MatchEngine`. Match simulation stays seeded and replayable; `useMatchRewards` ignores round intermissions and generates a win reward once per final ended revision. The immutable before/after reveals are applied sequentially as caches are collected. Leaving the reward flow collects every remaining reveal before clearing transient state, so a reward cannot be lost or rerolled while the player still gets an explicit collection step.
 
 Timer resolution remains inside `MatchEngine`. A final combat step may still produce an immediate Core or Relay-Rush victory. Otherwise destroyed Relay count has priority; equal counts freeze combat and enter a `resolving` phase. After a 1.5-second warning, every surviving Relay and Core drains independently at the same percentage rate calibrated so the lowest starting tower-power percentage reaches zero after eight visible seconds. Neutral drain does not award Relay/Core destruction points. Exact tower-power equality compares whole-number Tower Damage, pre-victory Battle Score, and then a fixed-salt hash of the match seed, preserving replay determinism while preventing draws.
 
@@ -45,6 +47,9 @@ The generated concept studies in `docs/concepts/` are design references only. Ke
 - Add new commands/events to `src/game/core/types.ts`, implement rules in `MatchEngine`, and let presentation subscribe through `GameBridge`.
 - Give every new card an exhaustive profile in `src/audio/soundDesign.ts`; route new high-value game events there before adding Web Audio rendering in `SoundEngine`.
 - Add owned background tracks to `public/assets/audio/music/` and register them in `src/audio/musicCatalog.ts`. Do not put music in the Phaser asset manifest.
+- Keep mixer persistence and phase transitions in `src/features/audio/useGameAudio.ts`; components should request playback through its returned engines and actions instead of adding parallel document listeners or storage keys.
 - Keep combat decisions out of React and Phaser. Both should present engine state rather than mutate it directly.
 - Preserve seeded behavior: all match randomness must use the engine's seeded random source.
 - Run `npm run check` before committing. This enforces strict TypeScript, unused-code checks, simulation/presentation/storage tests, and a production build.
+
+The detailed addon routing guide is in [`EXTENDING.md`](EXTENDING.md).

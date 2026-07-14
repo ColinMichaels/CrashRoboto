@@ -2272,11 +2272,28 @@ kbd {
 }
 
 .victory-cache-rewards h3 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   padding: 0 1% 0.55%;
   border-bottom: 1px solid rgba(76, 224, 211, 0.32);
   color: var(--cyan);
   font-size: clamp(0.4rem, 0.72vw, 0.74rem);
   letter-spacing: 0.14em;
+}
+
+.victory-cache-rewards h3 strong {
+  color: var(--amber);
+  font-size: clamp(0.3rem, 0.5vw, 0.52rem);
+  letter-spacing: 0.1em;
+}
+
+.victory-cache-overlay.is-collected .victory-cache-rewards h3 strong {
+  color: var(--cyan);
+}
+
+.victory-cache-overlay.is-collected .victory-cache-reward {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--reward-accent) 16%, transparent);
 }
 
 .victory-cache-reward {

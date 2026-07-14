@@ -22,27 +22,47 @@ function withTrailingSlash(baseUrl: string): string {
 export function getBundledMusicPlaylist(baseUrl = import.meta.env.BASE_URL): MusicTrack[] {
   const base = withTrailingSlash(baseUrl);
 
-  return [{
-    id: 'crash-roboto-theme',
-    title: 'Crash Roboto',
-    artist: 'colinmichaels',
-    src: `${base}assets/audio/music/crash-roboto.mp3`,
-    artwork: `${base}assets/audio/music/crash-roboto-cover.jpg`,
-    source: 'bundled',
-  }];
+  return [
+    {
+      id: 'crash-roboto-theme',
+      title: 'Crash Roboto',
+      artist: 'colinmichaels',
+      src: `${base}assets/audio/music/crash-roboto.mp3`,
+      artwork: `${base}assets/audio/music/crash-roboto-cover.jpg`,
+      source: 'bundled',
+    },
+    {
+      id: 'crash-roboto-battle-mashup-8bit',
+      title: 'Crash Roboto — 8-Bit Battle Mashup',
+      artist: 'colinmichaels',
+      src: `${base}assets/audio/music/crash-roboto-battle-mashup-8bit.mp3`,
+      artwork: `${base}assets/audio/music/crash-roboto-cover.jpg`,
+      source: 'bundled',
+    },
+  ];
 }
 
 export function getBundledLobbyMusicPlaylist(baseUrl = import.meta.env.BASE_URL): MusicTrack[] {
   const base = withTrailingSlash(baseUrl);
 
-  return [{
-    id: 'crash-roboto-lobby-entrance',
-    title: 'Crash Roboto — Lobby Entrance',
-    artist: 'colinmichaels',
-    src: `${base}assets/audio/music/crash-roboto-lobby-entrance.mp3`,
-    artwork: `${base}assets/audio/music/crash-roboto-cover.jpg`,
-    source: 'bundled',
-  }];
+  return [
+    {
+      id: 'crash-roboto-lobby-entrance',
+      title: 'Crash Roboto — Lobby Entrance',
+      artist: 'colinmichaels',
+      src: `${base}assets/audio/music/crash-roboto-lobby-entrance.mp3`,
+      artwork: `${base}assets/audio/music/crash-roboto-cover.jpg`,
+      source: 'bundled',
+    },
+    {
+      id: 'crash-roboto-lobby-relaxed-8bit',
+      title: 'Crash Roboto — Relaxed 8-Bit Lobby',
+      artist: 'colinmichaels',
+      src: `${base}assets/audio/music/crash-roboto-lobby-relaxed-8bit.mp3`,
+      artwork: `${base}assets/audio/music/crash-roboto-cover.jpg`,
+      source: 'bundled',
+    },
+  ];
 }
 
 export function getTrackTitleFromFilename(filename: string): string {

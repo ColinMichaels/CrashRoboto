@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { getPlayerLevel } from '../game/core/progression';
-import { readPlayerProgress } from './playerProgressStorage';
-import { readLobbyLoadout } from './loadoutStorage';
+import { readPlayerProgress } from '../persistence/playerProgressStorage';
+import { readLobbyLoadout } from '../persistence/loadoutStorage';
 import {
   prepareInitialGameAssets,
   scheduleDeferredAssetWarmup,

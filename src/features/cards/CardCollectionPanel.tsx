@@ -54,7 +54,7 @@ export function CardCollectionPanel({ cardId, entry, onClose }: CardCollectionPa
       >
       <header>
         <span>
-          <small>VAULT CARD</small>
+          <small>CARD INTEL</small>
           <h2 id="collection-intel-title">{card.shortName}</h2>
         </span>
         <button ref={closeRef} type="button" onClick={onClose} aria-label="Close card intel">
