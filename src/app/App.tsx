@@ -1,4 +1,13 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react';
 import {
   BATTLE_MUSIC_PLAYLIST,
   LOBBY_MUSIC_PLAYLIST,
@@ -48,6 +57,7 @@ import {
   type AssetLoadProgress,
 } from './assetPreloader';
 import { GameLoadingScreen } from './GameLoadingScreen';
+import { DESKTOP_ARENA_HEIGHT_RATIO } from '../game/phaser/arenaViewport';
 
 const GameCanvas = lazy(() => loadGameCanvasModule().then((module) => ({ default: module.GameCanvas })));
 const TUTORIAL_STORAGE_KEY = 'crash-roboto-tutorial-complete';
@@ -458,6 +468,9 @@ export function App() {
       <div className="ambient-grid" aria-hidden="true" />
       <div
         className={`game-frame${snapshot.phase === 'menu' ? ' is-lobby' : ' is-battle'}`}
+        style={snapshot.phase === 'menu' ? undefined : {
+          '--desktop-arena-height': `${DESKTOP_ARENA_HEIGHT_RATIO * 100}%`,
+        } as CSSProperties}
         onContextMenu={(event) => event.preventDefault()}
       >
         {snapshot.phase === 'menu' ? (

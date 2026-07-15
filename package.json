@@ -9,10 +9,11 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
+    "check:audio": "node scripts/auditAudioAssets.mjs",
     "preview": "vite preview --host 127.0.0.1",
     "test": "vitest run",
     "typecheck": "tsc -b --pretty false",
-    "check": "npm run typecheck && npm test && npm run build"
+    "check": "npm run typecheck && npm run check:audio && npm test && npm run build"
   },
   "dependencies": {
     "phaser": "4.2.0",

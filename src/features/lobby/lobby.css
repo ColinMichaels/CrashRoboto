@@ -837,6 +837,59 @@ button.lobby-card:hover:not(:disabled) {
   width: 96%;
 }
 
+.lobby-card-action-preview {
+  position: absolute;
+  top: 47%;
+  left: 50%;
+  z-index: 2;
+  width: 76%;
+  aspect-ratio: 1;
+  background-repeat: no-repeat;
+  filter:
+    drop-shadow(0 8px 8px rgba(0, 0, 0, 0.68))
+    drop-shadow(0 0 8px rgba(var(--lobby-card-rgb), 0.2));
+  opacity: 0;
+  transform: translate(-50%, -45%) scale(0.92);
+  transition: opacity 110ms ease;
+  pointer-events: none;
+}
+
+.lobby-card-action-flare {
+  position: absolute;
+  top: 45%;
+  left: 48%;
+  z-index: 3;
+  width: 46%;
+  height: 2px;
+  background: linear-gradient(90deg, rgba(var(--lobby-card-rgb), 0), var(--lobby-card-accent), #effffc);
+  box-shadow: 0 0 9px var(--lobby-card-accent);
+  opacity: 0;
+  transform: scaleX(0);
+  transform-origin: left center;
+  pointer-events: none;
+}
+
+.lobby-card[data-preview="robot"]:is(:hover, :focus) .lobby-card-portrait {
+  opacity: 0.14;
+}
+
+.lobby-card[data-preview="robot"]:is(:hover, :focus) .lobby-card-action-preview {
+  opacity: 1;
+  animation: lobby-card-action-gait var(--card-action-duration, 560ms) steps(1, end) infinite;
+}
+
+.lobby-card[data-preview="system"]:is(:hover, :focus) .lobby-card-portrait {
+  animation: lobby-card-system-cast 680ms cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
+}
+
+.lobby-card[data-preview="system"]:is(:hover, :focus) .lobby-card-action-flare {
+  animation: lobby-card-action-flare 680ms ease-out infinite;
+}
+
+.lobby-card.is-vault-locked .lobby-card-action-preview {
+  filter: grayscale(0.92) brightness(0.46) drop-shadow(0 5px 7px rgba(0, 0, 0, 0.72));
+}
+
 .lobby-card-cost {
   position: absolute;
   top: 3%;
@@ -1153,6 +1206,41 @@ button.lobby-card:hover:not(:disabled) {
 .lobby-card-archive .lobby-card-portrait.portrait-vault {
   top: 47%;
   width: 61%;
+}
+
+.lobby-card-archive .lobby-card-action-preview {
+  width: 64%;
+}
+
+@keyframes lobby-card-action-gait {
+  0%, 100% {
+    background-position: 60% var(--card-action-row, 0%);
+    transform: translate(-50%, -47%) scale(0.94);
+  }
+  25% {
+    background-position: 80% var(--card-action-row, 0%);
+    transform: translate(-50%, -50%) scale(1);
+  }
+  50% {
+    background-position: 100% var(--card-action-row, 0%);
+    transform: translate(-50%, -48%) scale(0.97);
+  }
+  75% {
+    background-position: 80% var(--card-action-row, 0%);
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes lobby-card-system-cast {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); filter: brightness(1); }
+  38% { transform: translate(-50%, -54%) scale(1.05); filter: brightness(1.28); }
+  58% { transform: translate(-50%, -48%) scale(0.98); filter: brightness(0.96); }
+}
+
+@keyframes lobby-card-action-flare {
+  0%, 28% { opacity: 0; transform: scaleX(0); }
+  46% { opacity: 0.9; transform: scaleX(1); }
+  72%, 100% { opacity: 0; transform: translateX(35%) scaleX(0.28); }
 }
 
 .lobby-card-archive .lobby-card-cost {
@@ -2452,5 +2540,16 @@ button.lobby-card:hover:not(:disabled) {
   .lobby-reset-button,
   .lobby-launch-button {
     transition: none;
+  }
+
+  .lobby-card[data-preview] .lobby-card-portrait,
+  .lobby-card[data-preview] .lobby-card-action-preview,
+  .lobby-card[data-preview] .lobby-card-action-flare {
+    animation: none;
+  }
+
+  .lobby-card-action-preview,
+  .lobby-card-action-flare {
+    display: none;
   }
 }

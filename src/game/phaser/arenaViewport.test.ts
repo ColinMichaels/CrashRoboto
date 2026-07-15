@@ -10,12 +10,22 @@ import {
   PORTRAIT_ARENA_LEFT,
   PORTRAIT_ARENA_ASPECT_RATIO,
   PORTRAIT_ARENA_WIDTH,
+  DESKTOP_ARENA_HEIGHT_RATIO,
   clientPointToArenaPoint,
   createArenaViewport,
   getPortraitArenaHeight,
 } from './arenaViewport';
 
 describe('arena viewport', () => {
+  it('reserves the exact native board height above the desktop HUD band', () => {
+    expect(DESKTOP_ARENA_HEIGHT_RATIO).toBeCloseTo(684 / 900);
+
+    const viewport = createArenaViewport(1600, 684);
+    expect(viewport.zoomX).toBe(1);
+    expect(viewport.zoomY).toBe(1);
+    expect(viewport.worldHeight).toBe(BOARD_HEIGHT);
+  });
+
   it('keeps the complete board visible in landscape', () => {
     const viewport = createArenaViewport(844, 390);
 

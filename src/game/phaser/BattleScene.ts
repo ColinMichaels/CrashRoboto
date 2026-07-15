@@ -1,4 +1,4 @@
-import { GameObjects, Scene } from 'phaser';
+import { GameObjects, Scene, TintModes } from 'phaser';
 import type { Input } from 'phaser';
 import {
   BOARD_HEIGHT,
@@ -45,7 +45,14 @@ import {
   type ArenaUnitDirection,
   type ArenaUnitPoseState,
 } from './unitPresentation';
-import { getArenaAssetManifest } from './arenaAssets';
+import { getArenaAssetManifest, getArenaBoardThemeForLevel } from './arenaAssets';
+import {
+  getArenaAmbientMotionSample,
+  getArenaAmbientPresentation,
+  getRouteChevronProgress,
+  getStageTransitionPresentation,
+  getTowerDamageBand,
+} from './arenaEffects';
 import {
   DISABLED_COLOR,
   ENEMY_COLOR,
@@ -88,16 +95,30 @@ interface UnitMotionVisual {
   state: ArenaUnitPoseState;
 }
 
+interface RecoilVisual {
+  startedAtMs: number;
+  durationMs: number;
+  directionX: number;
+  directionY: number;
+  strength: number;
+}
+
 export class BattleScene extends Scene {
   private readonly unitSprites = new Map<string, GameObjects.Sprite>();
   private readonly unitShadows = new Map<string, GameObjects.Ellipse>();
   private readonly unitMotion = new Map<string, UnitMotionVisual>();
+  private readonly recoilVisuals = new Map<string, RecoilVisual>();
+  private readonly hitFlashUntilMs = new Map<string, number>();
   private readonly towerSprites = new Map<string, GameObjects.Image>();
   private readonly installationSprites = new Map<string, GameObjects.Image>();
   private readonly nanoZoneVisuals = new Map<string, NanoZoneVisual>();
   private readonly pendingAttacks = new Map<number, PendingAttackVisual>();
   private readonly pendingDeathIds = new Set<string>();
   private readonly combatVfx = new Set<GameObjects.GameObject>();
+  private readonly aftermathMarks: GameObjects.GameObject[] = [];
+  private ambientLayer!: GameObjects.Graphics;
+  private teamLayer!: GameObjects.Graphics;
+  private damageLayer!: GameObjects.Graphics;
   private healthLayer!: GameObjects.Graphics;
   private deployLayer!: GameObjects.Graphics;
   private statusLayer!: GameObjects.Graphics;
@@ -108,10 +129,12 @@ export class BattleScene extends Scene {
   private previousPhase: MatchSnapshot['phase'] | null = null;
   private previousRound = 1;
   private previousRemainingMs = 0;
+  private previousStage: MatchSnapshot['stage'] | null = null;
   private previousSnapshotRevision = -1;
   private unsubscribeEvents?: () => void;
   private arenaViewport = createArenaViewport(BOARD_WIDTH, BOARD_HEIGHT);
   private presentationReady = false;
+  private reducedMotion = false;
 
   constructor(
     private readonly bridge: GameBridge,
@@ -138,12 +161,16 @@ export class BattleScene extends Scene {
   }
 
   create(): void {
+    this.reducedMotion = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.add
       .image(BOARD_WIDTH / 2, BOARD_HEIGHT / 2, 'arena-board')
       .setDisplaySize(BOARD_WIDTH, BOARD_HEIGHT)
       .setDepth(0);
 
+    this.ambientLayer = this.add.graphics().setDepth(0.6).setBlendMode('ADD');
     this.deployLayer = this.add.graphics().setDepth(1);
+    this.teamLayer = this.add.graphics().setDepth(4.76);
+    this.damageLayer = this.add.graphics().setDepth(6.08);
     this.statusLayer = this.add.graphics().setDepth(6.2);
     this.targetLayer = this.add.graphics().setDepth(6.8);
     this.healthLayer = this.add.graphics().setDepth(8);
@@ -259,6 +286,7 @@ export class BattleScene extends Scene {
     const snapshot = this.bridge.getSnapshot();
     const snapshotChanged = snapshot.revision !== this.previousSnapshotRevision;
     const currentRound = snapshot.series?.currentRound ?? 1;
+    let stageChanged = snapshot.phase === 'playing' && this.previousStage !== snapshot.stage;
     const startingFreshMatch =
       snapshot.phase === 'playing' &&
       this.previousPhase !== null &&
@@ -267,13 +295,21 @@ export class BattleScene extends Scene {
         this.previousPhase === 'ended' ||
         currentRound !== this.previousRound ||
         snapshot.remainingMs > this.previousRemainingMs + 1_000);
-    if (startingFreshMatch) this.clearCombatVfx();
+    if (startingFreshMatch) {
+      this.clearCombatVfx();
+      stageChanged = true;
+    }
     this.previousPhase = snapshot.phase;
     this.previousRound = currentRound;
     this.previousRemainingMs = snapshot.remainingMs;
+    if (stageChanged) {
+      this.showStageTransition(snapshot.stage);
+      this.previousStage = snapshot.stage;
+    }
 
     // Units, active zones, and disabled installations have frame-driven motion or flicker.
     for (const unit of snapshot.units) this.syncUnit(unit, snapshot.phase);
+    for (const tower of snapshot.towers) this.syncTower(tower, snapshot.phase);
     for (const installation of snapshot.installations) this.syncInstallation(installation);
     for (const zone of snapshot.zones) this.syncNanoZone(zone);
 
@@ -292,11 +328,12 @@ export class BattleScene extends Scene {
         }
       }
 
-      for (const tower of snapshot.towers) this.syncTower(tower, snapshot.phase);
       for (const [id, sprite] of this.towerSprites) {
         if (!towerIds.has(id)) {
           sprite.destroy();
           this.towerSprites.delete(id);
+          this.recoilVisuals.delete(id);
+          this.hitFlashUntilMs.delete(id);
         }
       }
 
@@ -305,6 +342,8 @@ export class BattleScene extends Scene {
           this.tweens.killTweensOf(sprite);
           sprite.destroy();
           this.installationSprites.delete(id);
+          this.recoilVisuals.delete(id);
+          this.hitFlashUntilMs.delete(id);
         }
       }
 
@@ -319,11 +358,14 @@ export class BattleScene extends Scene {
 
       this.drawHealth(snapshot.units, snapshot.towers, snapshot.installations, snapshot.phase);
       this.drawDeployZone(snapshot);
-      this.updateGhost();
       this.previousSnapshotRevision = snapshot.revision;
     }
 
+    this.drawAmbientArena();
+    this.drawTeamMarkers(snapshot);
+    this.drawTowerDamage(snapshot.towers);
     this.drawStatus(snapshot);
+    this.updateGhost();
   }
 
   private syncUnit(unit: UnitState, phase: MatchSnapshot['phase']): void {
@@ -401,6 +443,7 @@ export class BattleScene extends Scene {
       displayHeight * heightScale,
       flipX,
     );
+    const recoil = this.getRecoilOffset(unit.id);
 
     motion.previousX = unit.x;
     motion.previousY = unit.y;
@@ -413,11 +456,15 @@ export class BattleScene extends Scene {
 
     sprite
       .setFrame(pose.frame)
-      .setPosition(unit.x + frameOffset.x, unit.y + bob + frameOffset.y)
+      .setPosition(
+        unit.x + frameOffset.x + recoil.x,
+        unit.y + bob + frameOffset.y + recoil.y,
+      )
       .setDisplaySize(size, displayHeight * heightScale)
       .setDepth(5 + unit.y / 1000)
       .setRotation(lean)
       .setFlipX(flipX)
+      .setTintMode(TintModes.MULTIPLY)
       .clearTint();
 
     shadow
@@ -428,6 +475,8 @@ export class BattleScene extends Scene {
 
     if (unit.hp <= 0) {
       sprite.setAlpha(0.2).setTint(0x25343a);
+    } else if (this.isHitFlashing(unit.id)) {
+      sprite.setAlpha(1).setTint(0xf4fffc).setTintMode(TintModes.FILL);
     } else if (unit.disabledMs > 0) {
       const flicker = 0.57 + Math.sin(this.time.now / 70) * 0.08;
       sprite.setAlpha(flicker).setTint(DISABLED_COLOR);
@@ -435,7 +484,7 @@ export class BattleScene extends Scene {
       sprite.setAlpha(1).setTint(OVERDRIVE_COLOR);
     } else {
       sprite.setAlpha(1);
-      if (unit.team === 'enemy') sprite.setTint(0xff806e);
+      if (unit.team === 'enemy') sprite.setTint(0xffb9b2);
     }
   }
 
@@ -447,6 +496,8 @@ export class BattleScene extends Scene {
       this.unitShadows.delete(id);
     }
     this.unitMotion.delete(id);
+    this.recoilVisuals.delete(id);
+    this.hitFlashUntilMs.delete(id);
   }
 
   private syncTower(tower: TowerState, phase: MatchSnapshot['phase']): void {
@@ -463,12 +514,16 @@ export class BattleScene extends Scene {
         .setDisplaySize(size, size);
       this.towerSprites.set(tower.id, sprite);
     }
+    const recoil = this.getRecoilOffset(tower.id);
     sprite.setTexture(texture, frame);
-    sprite.setPosition(tower.x, tower.y);
+    sprite.setPosition(tower.x + recoil.x, tower.y + recoil.y);
     sprite.setDisplaySize(size, size);
     sprite.setDepth(3 + tower.y / 1000);
+    sprite.setTintMode(TintModes.MULTIPLY);
     if (tower.hp <= 0 && !this.pendingDeathIds.has(tower.id)) {
       sprite.setAlpha(0.18).setTint(0x25343a);
+    } else if (this.isHitFlashing(tower.id)) {
+      sprite.setAlpha(1).setTint(0xfff5e8).setTintMode(TintModes.FILL);
     } else if (phase === 'resolving') {
       const pulse = 0.82 + Math.sin(this.time.now / 115 + tower.x * 0.01) * 0.12;
       sprite
@@ -476,7 +531,7 @@ export class BattleScene extends Scene {
         .setTint(tower.team === 'player' ? 0xffd475 : 0xff6f57);
     } else {
       sprite.clearTint().setAlpha(1);
-      if (!core && tower.team === 'enemy') sprite.setTint(0xff846f);
+      if (!core && tower.team === 'enemy') sprite.setTint(0xffb6aa);
     }
   }
 
@@ -496,23 +551,27 @@ export class BattleScene extends Scene {
         .setDisplaySize(size, size);
       this.installationSprites.set(installation.id, sprite);
     }
+    const recoil = this.getRecoilOffset(installation.id);
 
     sprite
       .setTexture(texture, frame)
-      .setPosition(installation.x, installation.y)
+      .setPosition(installation.x + recoil.x, installation.y + recoil.y)
       .setDisplaySize(size, size)
       .setDepth(4.7 + installation.y / 1000)
       .setRotation(0)
+      .setTintMode(TintModes.MULTIPLY)
       .clearTint();
 
     if (installation.hp <= 0 || installation.remainingMs <= 0) {
       sprite.setAlpha(0.18).setTint(0x25343a);
+    } else if (this.isHitFlashing(installation.id)) {
+      sprite.setAlpha(1).setTint(0xf4fffc).setTintMode(TintModes.FILL);
     } else if (installation.disabledMs > 0) {
       const flicker = 0.55 + Math.sin(this.time.now / 75) * 0.08;
       sprite.setAlpha(flicker).setTint(DISABLED_COLOR);
     } else {
       sprite.setAlpha(1);
-      if (installation.team === 'enemy') sprite.setTint(0xff806e);
+      if (installation.team === 'enemy') sprite.setTint(0xffb9b2);
     }
   }
 
@@ -561,6 +620,184 @@ export class BattleScene extends Scene {
     if (zone.team === 'enemy') visual.core.setTint(ENEMY_COLOR);
   }
 
+  private drawAmbientArena(): void {
+    const presentation = getArenaAmbientPresentation(
+      getArenaBoardThemeForLevel(this.playerLevel),
+    );
+    const now = this.time.now;
+    const animated = !this.reducedMotion;
+    const intensity = presentation.intensity;
+    this.ambientLayer.clear();
+
+    for (const point of presentation.points) {
+      const motion = getArenaAmbientMotionSample(point, now, animated);
+      const theta = motion.pulse * Math.PI * 2 + point.phase * Math.PI;
+      if (point.kind === 'beacon') {
+        this.ambientLayer
+          .fillStyle(presentation.secondary, (0.075 + motion.pulse * 0.12) * intensity)
+          .fillCircle(point.x, point.y, point.radius * (1.75 + motion.pulse * 0.35))
+          .lineStyle(2, presentation.primary, (0.16 + motion.pulse * 0.28) * intensity)
+          .strokeCircle(point.x, point.y, point.radius * (0.72 + motion.pulse * 0.18))
+          .fillStyle(0xffffff, (0.3 + motion.pulse * 0.42) * intensity)
+          .fillCircle(point.x, point.y, point.radius * (0.24 + motion.pulse * 0.1))
+          .lineStyle(1, presentation.secondary, (0.12 + motion.pulse * 0.22) * intensity)
+          .lineBetween(point.x - point.radius * 2.4, point.y, point.x + point.radius * 2.4, point.y)
+          .lineBetween(point.x, point.y - point.radius * 1.8, point.x, point.y + point.radius * 1.8);
+        continue;
+      }
+
+      if (point.kind === 'flow') {
+        const direction = point.direction ?? 1;
+        const opacity = point.opacity ?? 1;
+        for (let track = 0; track < 3; track += 1) {
+          const progress = (motion.flowProgress + track * 0.31) % 1;
+          const headX = point.x - point.radius + progress * point.radius * 2;
+          const lineLength = point.radius * (track === 1 ? 0.72 : 0.48);
+          const flowY = point.y + (track - 1) * 9 + Math.sin(now / 260 + point.phase * 7 + track) * 2;
+          const tailX = headX - direction * lineLength;
+          const alpha = (track === 1 ? 0.18 : 0.1) * intensity * opacity;
+          this.ambientLayer
+            .lineStyle(track === 1 ? 4 : 2, presentation.primary, alpha)
+            .lineBetween(tailX, flowY, headX, flowY)
+            .lineStyle(1, presentation.secondary, alpha * 1.25)
+            .lineBetween(
+              tailX + direction * lineLength * 0.58,
+              flowY,
+              headX,
+              flowY,
+            )
+            .fillStyle(presentation.secondary, alpha)
+            .fillCircle(headX, flowY, track === 1 ? 3.2 : 2);
+
+          const bubbleProgress = (motion.liftProgress + track * 0.27) % 1;
+          const bubbleX = point.x - point.radius * 0.74 + bubbleProgress * point.radius * 1.48;
+          const bubbleY = point.y + 13 - Math.sin(bubbleProgress * Math.PI) * 20;
+          this.ambientLayer
+            .lineStyle(
+              1,
+              presentation.secondary,
+              (0.07 + (1 - bubbleProgress) * 0.11) * intensity * opacity,
+            )
+            .strokeCircle(bubbleX, bubbleY, 2 + bubbleProgress * 3.5);
+        }
+        continue;
+      }
+
+      for (let wisp = 0; wisp < 3; wisp += 1) {
+        const progress = (motion.liftProgress + wisp * 0.3) % 1;
+        const lift = progress * 72;
+        const drift = Math.sin(theta + wisp * 1.7 + progress * Math.PI) * (7 + progress * 11);
+        const alpha = Math.max(0, (1 - progress) * (wisp === 1 ? 0.22 : 0.14) * intensity);
+        const wispX = point.x + drift;
+        const wispY = point.y - lift;
+        this.ambientLayer
+          .lineStyle(wisp === 1 ? 3 : 2, presentation.secondary, alpha * 0.72)
+          .lineBetween(wispX, wispY + 13, wispX + drift * 0.24, wispY - 8)
+          .fillStyle(presentation.primary, alpha)
+          .fillCircle(wispX, wispY, point.radius * (0.18 + progress * 0.22));
+      }
+    }
+  }
+
+  private drawTeamMarkers(snapshot: MatchSnapshot): void {
+    this.teamLayer.clear();
+    const pulse = this.reducedMotion ? 0.5 : 0.5 + Math.sin(this.time.now / 240) * 0.5;
+    for (const unit of snapshot.units) {
+      if (unit.hp <= 0) continue;
+      const color = teamColor(unit.team);
+      const scale = getPerspectiveScale(unit.y);
+      const width = Math.max(34, ROBOT_SIZES[unit.kind] * 0.62 * scale);
+      const y = unit.y + ROBOT_SIZES[unit.kind] * ARENA_UNIT_DISPLAY_HEIGHT_RATIO[unit.kind] * scale * 0.2;
+      this.teamLayer
+        .fillStyle(color, 0.055 + pulse * 0.018)
+        .fillEllipse(unit.x, y, width, Math.max(9, width * 0.18))
+        .lineStyle(1.5, color, 0.36 + pulse * 0.12)
+        .strokeEllipse(unit.x, y, width, Math.max(9, width * 0.18));
+      const forward = unit.team === 'player' ? -1 : 1;
+      const markerY = y + forward * Math.max(7, width * 0.12);
+      this.teamLayer
+        .lineStyle(2, color, 0.52)
+        .lineBetween(unit.x - 6 * scale, markerY - forward * 4 * scale, unit.x, markerY)
+        .lineBetween(unit.x, markerY, unit.x + 6 * scale, markerY - forward * 4 * scale);
+    }
+
+    for (const installation of snapshot.installations) {
+      if (installation.hp <= 0 || installation.remainingMs <= 0) continue;
+      const color = teamColor(installation.team);
+      const scale = getPerspectiveScale(installation.y);
+      const width = Math.max(42, INSTALLATION_SIZES[installation.kind] * 0.58 * scale);
+      this.teamLayer
+        .fillStyle(color, 0.045)
+        .fillEllipse(installation.x, installation.y + width * 0.12, width, Math.max(10, width * 0.16))
+        .lineStyle(1, color, 0.34)
+        .strokeEllipse(installation.x, installation.y + width * 0.12, width, Math.max(10, width * 0.16));
+    }
+  }
+
+  private drawTowerDamage(towers: TowerState[]): void {
+    this.damageLayer.clear();
+    const now = this.reducedMotion ? 0 : this.time.now;
+    for (const tower of towers) {
+      const band = getTowerDamageBand(tower.hp, tower.maxHp);
+      if (band === 'stable' || band === 'destroyed') continue;
+      const scale = getPerspectiveScale(tower.y);
+      const radius = (tower.kind === 'core' ? 70 : 50) * scale;
+      const color = band === 'critical' ? 0xff5e43 : 0xffb347;
+      const pulse = 0.5 + Math.sin(now / (band === 'critical' ? 105 : 190) + tower.x * 0.01) * 0.5;
+      this.damageLayer
+        .fillStyle(color, 0.018 + pulse * (band === 'critical' ? 0.05 : 0.02))
+        .fillCircle(tower.x, tower.y, radius * (0.86 + pulse * 0.08));
+      this.drawArc(
+        this.damageLayer,
+        tower.x,
+        tower.y,
+        radius,
+        Math.PI * 0.08,
+        Math.PI * (band === 'critical' ? 1.72 : 1.18),
+        color,
+        band === 'critical' ? 0.65 + pulse * 0.25 : 0.34 + pulse * 0.18,
+        band === 'critical' ? 3 : 2,
+      );
+
+      const sparkCount = band === 'critical' ? 4 : 2;
+      for (let index = 0; index < sparkCount; index += 1) {
+        const angle = now / 420 + index * Math.PI * 0.73 + tower.x * 0.004;
+        const inner = radius * (0.38 + ((index + 1) % 2) * 0.14);
+        const length = (7 + pulse * 8) * scale;
+        const x = tower.x + Math.cos(angle) * inner;
+        const y = tower.y + Math.sin(angle) * inner;
+        this.damageLayer
+          .lineStyle(index % 2 === 0 ? 2 : 1, index % 2 === 0 ? color : 0xfff1b0, 0.34 + pulse * 0.46)
+          .lineBetween(x, y, x + Math.cos(angle + 0.8) * length, y + Math.sin(angle + 0.8) * length);
+      }
+    }
+  }
+
+  private drawArc(
+    graphics: GameObjects.Graphics,
+    x: number,
+    y: number,
+    radius: number,
+    startAngle: number,
+    endAngle: number,
+    color: number,
+    alpha: number,
+    width: number,
+    segments = 14,
+  ): void {
+    graphics.lineStyle(width, color, alpha);
+    let previousX = x + Math.cos(startAngle) * radius;
+    let previousY = y + Math.sin(startAngle) * radius;
+    for (let index = 1; index <= segments; index += 1) {
+      const angle = startAngle + (endAngle - startAngle) * index / segments;
+      const nextX = x + Math.cos(angle) * radius;
+      const nextY = y + Math.sin(angle) * radius;
+      graphics.lineBetween(previousX, previousY, nextX, nextY);
+      previousX = nextX;
+      previousY = nextY;
+    }
+  }
+
   private drawStatus(snapshot: MatchSnapshot): void {
     this.statusLayer.clear();
     if (snapshot.phase === 'resolving') {
@@ -601,7 +838,18 @@ export class BattleScene extends Scene {
         if (unit.team !== commander.team || unit.hp <= 0 || unit.disabledMs > 0) continue;
         if (Math.hypot(unit.x - commander.x, unit.y - commander.y) > OVERDRIVE_AURA_RADIUS) continue;
         const radius = Math.max(17, ROBOT_SIZES[unit.kind] * 0.25 * getPerspectiveScale(unit.y));
-        this.statusLayer.lineStyle(2, color, 0.38 + pulse * 0.25).strokeCircle(unit.x, unit.y, radius);
+        this.drawArc(
+          this.statusLayer,
+          unit.x,
+          unit.y,
+          radius,
+          Math.PI * 0.08,
+          Math.PI * 0.92,
+          color,
+          0.42 + pulse * 0.28,
+          2,
+          9,
+        );
       }
     }
 
@@ -612,16 +860,45 @@ export class BattleScene extends Scene {
       if (unit.maxShieldHp > 0 && unit.shieldHp > 0) {
         const shieldRatio = unit.shieldHp / unit.maxShieldHp;
         const shieldPulse = 0.42 + Math.sin(this.time.now / 115) * 0.12;
-        this.statusLayer
-          .lineStyle(3, 0x72f7ff, shieldPulse + shieldRatio * 0.28)
-          .strokeCircle(unit.x, unit.y, radius * (1.06 + shieldRatio * 0.08));
+        const shieldStart = unit.team === 'player' ? Math.PI * 1.08 : Math.PI * 0.08;
+        this.drawArc(
+          this.statusLayer,
+          unit.x,
+          unit.y,
+          radius * (1.06 + shieldRatio * 0.08),
+          shieldStart,
+          shieldStart + Math.PI * 0.84,
+          0x72f7ff,
+          shieldPulse + shieldRatio * 0.28,
+          3,
+        );
       }
       if (unit.slowMs > 0) {
-        this.statusLayer
-          .lineStyle(2, 0xb66cff, 0.62)
-          .strokeCircle(unit.x, unit.y, radius * 0.86)
-          .lineStyle(1, 0xe8caff, 0.34)
-          .strokeCircle(unit.x, unit.y, radius * 0.6);
+        const trailStart = unit.team === 'player' ? 0.12 * Math.PI : 1.12 * Math.PI;
+        this.drawArc(
+          this.statusLayer,
+          unit.x,
+          unit.y,
+          radius * 0.88,
+          trailStart,
+          trailStart + Math.PI * 0.62,
+          0xb66cff,
+          0.66,
+          2,
+          8,
+        );
+        this.drawArc(
+          this.statusLayer,
+          unit.x,
+          unit.y,
+          radius * 0.66,
+          trailStart + Math.PI * 0.08,
+          trailStart + Math.PI * 0.46,
+          0xe8caff,
+          0.4,
+          1,
+          6,
+        );
       }
       if (unit.disabledMs > 0) this.drawDisabledMarker(unit.x, unit.y, radius);
     }
@@ -647,12 +924,14 @@ export class BattleScene extends Scene {
 
   private drawDisabledMarker(x: number, y: number, radius: number): void {
     const pulse = 0.55 + Math.sin(this.time.now / 85) * 0.2;
+    const markerRadius = Math.max(8, radius * 0.28);
+    const markerY = y - radius - markerRadius * 0.4;
     this.statusLayer
       .lineStyle(2, DISABLED_COLOR, pulse)
-      .strokeCircle(x, y, radius)
-      .lineStyle(3, 0xc9d8dc, pulse)
-      .lineBetween(x - radius * 0.35, y - radius * 0.35, x + radius * 0.35, y + radius * 0.35)
-      .lineBetween(x + radius * 0.35, y - radius * 0.35, x - radius * 0.35, y + radius * 0.35);
+      .strokeCircle(x, markerY, markerRadius)
+      .lineStyle(2, 0xc9d8dc, pulse)
+      .lineBetween(x - markerRadius * 0.4, markerY - markerRadius * 0.4, x + markerRadius * 0.4, markerY + markerRadius * 0.4)
+      .lineBetween(x + markerRadius * 0.4, markerY - markerRadius * 0.4, x - markerRadius * 0.4, markerY + markerRadius * 0.4);
   }
 
   private drawHealth(
@@ -869,9 +1148,25 @@ export class BattleScene extends Scene {
       ).range;
       this.targetLayer.lineStyle(1, color, valid ? 0.2 : 0.1).strokeCircle(x, y, range);
       const routeY = y > 340 ? 335 : y > 275 ? 270 : 118;
+      const routeX = getLaneX(feedback.lane, routeY);
       this.targetLayer
         .lineStyle(2, color, valid ? 0.42 : 0.16)
-        .lineBetween(x, y, getLaneX(feedback.lane, routeY), routeY);
+        .lineBetween(x, y, routeX, routeY);
+      const routeAngle = Math.atan2(routeY - y, routeX - x);
+      const routeNow = this.reducedMotion ? 0 : this.time.now;
+      for (let index = 0; index < 4; index += 1) {
+        const progress = getRouteChevronProgress(routeNow, index, 4);
+        const chevronX = x + (routeX - x) * progress;
+        const chevronY = y + (routeY - y) * progress;
+        const backX = chevronX - Math.cos(routeAngle) * 13;
+        const backY = chevronY - Math.sin(routeAngle) * 13;
+        const normalX = Math.cos(routeAngle + Math.PI / 2) * 7;
+        const normalY = Math.sin(routeAngle + Math.PI / 2) * 7;
+        this.targetLayer
+          .lineStyle(3, valid ? 0xc8fff4 : color, valid ? 0.52 + progress * 0.34 : 0.12)
+          .lineBetween(backX + normalX, backY + normalY, chevronX, chevronY)
+          .lineBetween(chevronX, chevronY, backX - normalX, backY - normalY);
+      }
     } else if (card.category === 'installation' && card.range > 0) {
       this.targetLayer.lineStyle(1, color, valid ? 0.22 : 0.1).strokeCircle(x, y, card.range);
     }
@@ -894,6 +1189,9 @@ export class BattleScene extends Scene {
 
   private onGameEvent(event: GameEvent): void {
     switch (event.type) {
+      case 'powerDrainStarted':
+        this.showArenaAnnouncement('POWER DRAIN', 'NO DRAWS · TOWERS DECAY', 0xffc857);
+        return;
       case 'cardPlayed': {
         const card = CARDS[event.cardId];
         this.spawnRing(event.x, event.y, this.cardColor(card, event.team), 18, card.category === 'program' ? 66 : 54, 360, 6.5);
@@ -952,6 +1250,158 @@ export class BattleScene extends Scene {
     }
   }
 
+  private showStageTransition(stage: MatchSnapshot['stage']): void {
+    const presentation = getStageTransitionPresentation(stage);
+    this.showArenaAnnouncement(presentation.label, presentation.detail, presentation.color);
+  }
+
+  private showArenaAnnouncement(label: string, detail: string, color: number): void {
+    const sweep = this.trackCombatVfx(
+      this.add
+        .rectangle(BOARD_WIDTH / 2, this.reducedMotion ? BOARD_HEIGHT / 2 : 80, BOARD_WIDTH, 8, color, 0.16)
+        .setDepth(9.55)
+        .setBlendMode('ADD'),
+    );
+    const title = this.trackCombatVfx(
+      this.add
+        .text(BOARD_WIDTH / 2, 160, label, {
+          color: `#${color.toString(16).padStart(6, '0')}`,
+          fontFamily: 'Arial, sans-serif',
+          fontSize: '34px',
+          fontStyle: 'bold',
+          letterSpacing: 5,
+          stroke: '#031013',
+          strokeThickness: 6,
+        })
+        .setOrigin(0.5)
+        .setDepth(9.7)
+        .setAlpha(0),
+    );
+    const subtitle = this.trackCombatVfx(
+      this.add
+        .text(BOARD_WIDTH / 2, 194, detail, {
+          color: '#d8fff8',
+          fontFamily: 'Arial, sans-serif',
+          fontSize: '16px',
+          fontStyle: 'bold',
+          letterSpacing: 3,
+          stroke: '#031013',
+          strokeThickness: 4,
+        })
+        .setOrigin(0.5)
+        .setDepth(9.7)
+        .setAlpha(0),
+    );
+
+    const sweepDuration = this.reducedMotion ? 1 : 520;
+    this.tweens.add({
+      targets: sweep,
+      y: this.reducedMotion ? BOARD_HEIGHT / 2 : BOARD_HEIGHT - 60,
+      alpha: 0,
+      duration: sweepDuration,
+      ease: 'Sine.InOut',
+      onComplete: () => this.destroyCombatVfx(sweep),
+    });
+    this.tweens.add({
+      targets: [title, subtitle],
+      alpha: 1,
+      duration: this.reducedMotion ? 1 : 130,
+      yoyo: true,
+      hold: this.reducedMotion ? 180 : 540,
+      onComplete: () => {
+        this.destroyCombatVfx(title);
+        this.destroyCombatVfx(subtitle);
+      },
+    });
+  }
+
+  private beginRecoil(
+    source: CombatEntityRef,
+    directionX: number,
+    directionY: number,
+    projectile: ProjectileKind,
+  ): void {
+    if (this.reducedMotion) return;
+    this.recoilVisuals.set(source.id, {
+      startedAtMs: this.time.now,
+      durationMs: projectile === 'rocket' ? 170 : projectile === 'flame' ? 90 : 120,
+      directionX,
+      directionY,
+      strength: projectile === 'rocket' ? 10 : projectile === 'flame' ? 4 : 6,
+    });
+  }
+
+  private getRecoilOffset(id: string): { x: number; y: number } {
+    const recoil = this.recoilVisuals.get(id);
+    if (!recoil) return { x: 0, y: 0 };
+    const progress = (this.time.now - recoil.startedAtMs) / recoil.durationMs;
+    if (progress >= 1 || progress < 0) {
+      this.recoilVisuals.delete(id);
+      return { x: 0, y: 0 };
+    }
+    const amount = Math.sin(progress * Math.PI) * (1 - progress) * recoil.strength;
+    return {
+      x: -recoil.directionX * amount,
+      y: -recoil.directionY * amount,
+    };
+  }
+
+  private isHitFlashing(id: string): boolean {
+    const until = this.hitFlashUntilMs.get(id);
+    if (until === undefined) return false;
+    if (until <= this.time.now) {
+      this.hitFlashUntilMs.delete(id);
+      return false;
+    }
+    return true;
+  }
+
+  private showMuzzleFlash(
+    x: number,
+    y: number,
+    directionX: number,
+    directionY: number,
+    team: Team,
+    projectile: ProjectileKind,
+  ): void {
+    const color = projectile === 'flame'
+      ? team === 'player' ? 0xffc857 : 0xff623d
+      : teamColor(team);
+    const scale = getPerspectiveScale(y);
+    const core = this.trackCombatVfx(
+      this.add.circle(x, y, (projectile === 'rocket' ? 10 : 7) * scale, 0xffffff, 0.9).setDepth(8.2),
+    );
+    const streak = this.trackCombatVfx(
+      this.add
+        .line(
+          0,
+          0,
+          x - directionX * 5 * scale,
+          y - directionY * 5 * scale,
+          x + directionX * (projectile === 'rocket' ? 30 : 20) * scale,
+          y + directionY * (projectile === 'rocket' ? 30 : 20) * scale,
+          color,
+          0.82,
+        )
+        .setOrigin(0)
+        .setLineWidth(projectile === 'rocket' ? 5 : 3, 1)
+        .setDepth(8.15),
+    );
+    this.tweens.add({
+      targets: core,
+      scale: 1.7,
+      alpha: 0,
+      duration: projectile === 'flame' ? 70 : 110,
+      onComplete: () => this.destroyCombatVfx(core),
+    });
+    this.tweens.add({
+      targets: streak,
+      alpha: 0,
+      duration: projectile === 'flame' ? 80 : 125,
+      onComplete: () => this.destroyCombatVfx(streak),
+    });
+  }
+
   private showProjectile(event: Extract<GameEvent, { type: 'projectileFired' }>): void {
     this.pendingAttacks.set(event.attackId, { projectile: event.projectile, deaths: [] });
 
@@ -981,6 +1431,8 @@ export class BattleScene extends Scene {
     const muzzleOffset = Math.max(10, event.source.radius * sourceScale * 0.72);
     const startX = sourceOrigin.x + directionX * muzzleOffset;
     const startY = sourceOrigin.y + directionY * muzzleOffset;
+    this.beginRecoil(event.source, directionX, directionY, event.projectile);
+    this.showMuzzleFlash(startX, startY, directionX, directionY, event.source.team, event.projectile);
     const visualDistance = Math.hypot(event.target.x - startX, event.target.y - startY);
     const baseSize = event.projectile === 'rocket' ? 150 : event.projectile === 'flame' ? 112 : 96;
     const startSize = baseSize * sourceScale;
@@ -1024,6 +1476,7 @@ export class BattleScene extends Scene {
       },
       onComplete: () => {
         this.destroyCombatVfx(projectile);
+        this.hitFlashUntilMs.set(event.target.id, this.time.now + (event.projectile === 'rocket' ? 150 : 100));
         this.showProjectileImpact(event.target.x, event.target.y, event.source.team, event.projectile);
         const pending = this.pendingAttacks.get(event.attackId);
         this.pendingAttacks.delete(event.attackId);
@@ -1147,7 +1600,58 @@ export class BattleScene extends Scene {
     if (!decay && projectile === 'rocket' && entity.entityType !== 'tower') {
       this.cameras.main.shake(90, 0.0018);
     }
+    this.showDestructionAftermath(entity, decay);
     this.collapseDestroyedEntity(entity, decay);
+  }
+
+  private showDestructionAftermath(entity: CombatEntityRef, decay: boolean): void {
+    const scale = getPerspectiveScale(entity.y);
+    const markWidth = (entity.entityType === 'tower' ? 126 : entity.entityType === 'installation' ? 86 : 58) * scale;
+    const mark = this.trackCombatVfx(
+      this.add
+        .ellipse(
+          entity.x,
+          entity.y + 8 * scale,
+          markWidth,
+          Math.max(10, markWidth * 0.24),
+          decay ? 0x203137 : 0x17110f,
+          decay ? 0.1 : 0.14,
+        )
+        .setStrokeStyle(1, decay ? DISABLED_COLOR : 0xff8a63, decay ? 0.08 : 0.16)
+        .setDepth(2.72 + entity.y / 2_000),
+    );
+    this.aftermathMarks.push(mark);
+    while (this.aftermathMarks.length > 18) {
+      const oldest = this.aftermathMarks.shift();
+      if (oldest) this.destroyCombatVfx(oldest);
+    }
+
+    if (decay || this.reducedMotion) return;
+    const smokeCount = entity.entityType === 'tower' ? 4 : 2;
+    for (let index = 0; index < smokeCount; index += 1) {
+      const smoke = this.trackCombatVfx(
+        this.add
+          .circle(
+            entity.x + (index - (smokeCount - 1) / 2) * 9 * scale,
+            entity.y - index * 3 * scale,
+            (7 + index * 2) * scale,
+            0x26363a,
+            0.22,
+          )
+          .setDepth(7.1 + entity.y / 2_000),
+      );
+      this.tweens.add({
+        targets: smoke,
+        x: smoke.x + (index % 2 === 0 ? -1 : 1) * 18 * scale,
+        y: smoke.y - (42 + index * 12) * scale,
+        scale: 1.8,
+        alpha: 0,
+        delay: index * 70,
+        duration: 900 + index * 120,
+        ease: 'Sine.Out',
+        onComplete: () => this.destroyCombatVfx(smoke),
+      });
+    }
   }
 
   private collapseDestroyedEntity(entity: CombatEntityRef, decay: boolean): void {
@@ -1225,7 +1729,10 @@ export class BattleScene extends Scene {
       if (object.active) object.destroy();
     }
     this.combatVfx.clear();
+    this.aftermathMarks.length = 0;
     this.pendingAttacks.clear();
+    this.recoilVisuals.clear();
+    this.hitFlashUntilMs.clear();
 
     for (const id of this.pendingDeathIds) {
       const unit = this.unitSprites.get(id);

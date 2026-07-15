@@ -1,6 +1,14 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type ChangeEvent } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ChangeEvent,
+  type CSSProperties,
+} from 'react';
 import type { MusicEngine } from '../../audio/MusicEngine';
 import { getTrackTitleFromFilename, type MusicTrack } from '../../audio/musicCatalog';
+import { getMusicOutputLevel, MUSIC_WAVEFORM_BARS } from './musicMeter';
 import './musicPlayer.css';
 
 interface MusicPlayerProps {
@@ -51,6 +59,38 @@ function AudioMuteIcon({ muted }: { muted: boolean }) {
         <path d="M16 9c1.4 1.6 1.4 4.4 0 6m2.8-8.8c3 3.2 3 8.4 0 11.6" />
       )}
     </svg>
+  );
+}
+
+function MusicWaveform({ isPlaying, muted, volume }: { isPlaying: boolean; muted: boolean; volume: number }) {
+  const outputLevel = getMusicOutputLevel(isPlaying, muted, volume);
+  const active = outputLevel > 0;
+
+  return (
+    <div
+      className={`music-waveform${active ? ' is-active' : ''}`}
+      role="meter"
+      aria-label="Music output signal"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round(outputLevel * 100)}
+      aria-valuetext={active ? `Music playing at ${Math.round(outputLevel * 100)} percent volume` : 'No music output'}
+      data-testid="music-waveform"
+    >
+      {MUSIC_WAVEFORM_BARS.map((shape, index) => (
+        <i
+          key={index}
+          style={{
+            '--wave-index': index,
+            '--wave-floor': Math.max(0.12, outputLevel * 0.3),
+            '--wave-peak': Math.max(0.12, outputLevel * (0.62 + shape * 0.38)),
+            height: `${Math.round(36 + shape * 58)}%`,
+            opacity: 0.28 + outputLevel * 0.72,
+          } as CSSProperties}
+          aria-hidden="true"
+        />
+      ))}
+    </div>
   );
 }
 
@@ -152,6 +192,12 @@ export function MusicPlayer({
         <small>{musicMuted ? 'MUSIC MUTED' : snapshot.isPlaying ? 'MUSIC · ON AIR' : 'MUSIC CHANNEL'}</small>
         <strong title={currentTrack?.title}>{currentTrack?.title ?? 'NO TRACK LOADED'}</strong>
       </div>
+
+      <MusicWaveform
+        isPlaying={snapshot.isPlaying}
+        muted={musicMuted}
+        volume={snapshot.volume}
+      />
 
       <button
         className="music-player-control music-player-skip"
