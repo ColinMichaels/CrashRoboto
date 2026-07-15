@@ -1,5 +1,10 @@
 import { BOARD_HEIGHT, BOARD_WIDTH } from '../core/content';
 
+export const DESKTOP_BATTLE_FRAME_ASPECT_RATIO = 16 / 9;
+export const DESKTOP_ARENA_HEIGHT_RATIO = (
+  BOARD_HEIGHT / BOARD_WIDTH
+) * DESKTOP_BATTLE_FRAME_ASPECT_RATIO;
+
 // Smallest centered crop that contains the complete program target bounds and
 // the outside edges of both relay tower sprites.
 export const PORTRAIT_ARENA_LEFT = 526;

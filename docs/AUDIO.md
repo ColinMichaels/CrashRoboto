@@ -21,7 +21,11 @@ The browser-ready delivery under `public/assets/audio/voice/` and `public/assets
 
 At startup, `SoundEngine` decodes one representative from each used family in batches. Alternate takes load on demand and enter the round-robin cache on later playback. A missing, failed, or not-yet-decoded family falls back to the procedural renderer, so an asset failure cannot silence a gameplay event.
 
+Only voice families retain alternate takes. Non-voice families use one canonical `v01` file because the delivered `v02`–`v04` differences were not perceptible enough in the dense battle mix to justify their download and repository cost. `npm run check:audio` verifies that every mapped file exists and that no unreferenced audio is shipped.
+
 The imported delivery remains marked `needs_review` by its source package. Ownership, generator/model terms, creative-similarity review, and commercial-use approval are still required before release.
+
+The primary ballistic guns, Pulse Ranger energy shot, Arc Sentry burst, Relay gun, and their matching impact layers are exceptions to that generated delivery. They use locally mastered recordings from SnakeF8's self-recorded weapon pack and Kenney's CC0 Sci-fi Sounds pack. Source and processing details are recorded in `public/assets/audio/sfx/combat/licensed-weapons/LICENSES.md`. Character voices and card-selection identities remain unchanged.
 
 ## Procedural fallback palette
 

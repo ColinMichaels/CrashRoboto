@@ -44,9 +44,12 @@ export type InterfaceSoundId =
   | 'matchLaunch';
 
 function variants(folder: string, cue: string, count: number, gain = 1): RecordedFamily {
+  // Non-voice delivery variants were perceptually redundant in the battle mix.
+  // Keep one canonical SFX take while preserving alternate voice performances.
+  const runtimeCount = folder.startsWith('voice/') ? count : 1;
   return {
     paths: Array.from(
-      { length: count },
+      { length: runtimeCount },
       (_, index) => `assets/audio/${folder}/${cue}__v${String(index + 1).padStart(2, '0')}.mp3`,
     ),
     gain,
@@ -143,22 +146,22 @@ export const RECORDED_SOUND_FAMILIES = {
   microbotAttack: variants('sfx/microbot', 'MICROBOT_ATTACK', 4, 0.78),
   microbotDestroy: variants('sfx/microbot', 'MICROBOT_DESTROY', 4, 0.84),
 
-  bulletLight: variants('sfx/combat/weapons', 'WEAPON_BULLET_LIGHT_FIRE', 4, 0.8),
-  bulletHeavy: variants('sfx/combat/weapons', 'WEAPON_BULLET_HEAVY_FIRE', 4, 0.82),
-  pulseFire: variants('sfx/combat/weapons', 'WEAPON_PULSE_FIRE', 4, 0.82),
-  sentryBurst: variants('sfx/combat/weapons', 'WEAPON_SENTRY_BURST', 4, 0.8),
+  bulletLight: variants('sfx/combat/licensed-weapons', 'GUN_LIGHT_FIRE', 4, 0.58),
+  bulletHeavy: variants('sfx/combat/licensed-weapons', 'GUN_HEAVY_FIRE', 4, 0.64),
+  pulseFire: variants('sfx/combat/licensed-weapons', 'LASER_PULSE_FIRE', 4, 0.72),
+  sentryBurst: variants('sfx/combat/licensed-weapons', 'GUN_SENTRY_BURST', 4, 0.54),
   rocketLight: variants('sfx/combat/weapons', 'WEAPON_ROCKET_LAUNCH_LIGHT', 4, 0.84),
   rocketHeavy: variants('sfx/combat/weapons', 'WEAPON_ROCKET_LAUNCH_HEAVY', 4, 0.88),
   siegeCharge: variants('sfx/combat/weapons', 'WEAPON_SIEGE_CHARGE', 3, 0.76),
   arcCharge: variants('sfx/combat/weapons', 'WEAPON_ARC_CHARGE', 3, 0.8),
   flameIgnite: variants('sfx/combat/weapons', 'WEAPON_FLAME_IGNITE', 3, 0.82),
-  impactBullet: variants('sfx/combat/impacts', 'IMPACT_BULLET_ARMOR', 4, 0.68),
-  impactPulse: variants('sfx/combat/impacts', 'IMPACT_PULSE', 4, 0.72),
+  impactBullet: variants('sfx/combat/licensed-weapons', 'IMPACT_BALLISTIC', 4, 0.52),
+  impactPulse: variants('sfx/combat/licensed-weapons', 'IMPACT_ENERGY', 4, 0.58),
   impactRocketSmall: variants('sfx/combat/impacts', 'IMPACT_ROCKET_SMALL', 4, 0.78),
   impactRocketHeavy: variants('sfx/combat/impacts', 'IMPACT_ROCKET_HEAVY', 4, 0.84),
   impactArc: variants('sfx/combat/impacts', 'IMPACT_ARC_PRIMARY', 4, 0.78),
   impactFlame: variants('sfx/combat/impacts', 'IMPACT_FLAME', 4, 0.72),
-  towerRelayGun: variants('sfx/towers', 'TOWER_RELAY_GUN_FIRE', 4, 0.82),
+  towerRelayGun: variants('sfx/combat/licensed-weapons', 'GUN_TOWER_FIRE', 4, 0.58),
   towerRelayRocket: variants('sfx/towers', 'TOWER_RELAY_ROCKET_FIRE', 4, 0.86),
   towerRelayFlame: variants('sfx/towers', 'TOWER_RELAY_FLAME_LOOP', 3, 0.72),
   towerCoreRocket: variants('sfx/towers', 'TOWER_CORE_ROCKET_FIRE', 4, 0.9),

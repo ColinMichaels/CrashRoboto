@@ -71,7 +71,7 @@ export function Hud({
         <div className="pilot pilot-player" style={{ '--pilot-accent': pilot.accent } as CSSProperties}>
           <PilotMark pilotId={pilotId} className="pilot-mark" />
           <strong>{pilot.name}</strong>
-          <span className="score-node" aria-label={`${snapshot.score.player} Data Points`}>{snapshot.score.player}</span>
+          <span key={`player-score-${snapshot.score.player}`} className="score-node" aria-label={`${snapshot.score.player} Data Points`}>{snapshot.score.player}</span>
           <span
             className="match-points"
             aria-label={`${snapshot.battleScore.player} battle score, ${Math.round(snapshot.towerDamage.player)} tower damage`}
@@ -89,7 +89,7 @@ export function Hud({
         </div>
 
         <div className="pilot pilot-enemy">
-          <span className="score-node" aria-label={`${snapshot.score.enemy} enemy Data Points`}>{snapshot.score.enemy}</span>
+          <span key={`enemy-score-${snapshot.score.enemy}`} className="score-node" aria-label={`${snapshot.score.enemy} enemy Data Points`}>{snapshot.score.enemy}</span>
           <span
             className="match-points"
             aria-label={`${snapshot.battleScore.enemy} enemy battle score, ${Math.round(snapshot.towerDamage.enemy)} enemy tower damage`}
