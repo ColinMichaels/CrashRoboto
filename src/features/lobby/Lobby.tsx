@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
-import { getCardSpriteStyle } from '../cards/cardPresentation';
+import { getCardActionPreviewStyle, getCardSpriteStyle } from '../cards/cardPresentation';
 import { CardCollectionPanel } from '../cards/CardCollectionPanel';
 import { getRobotUpgradeBadgeInfo, UpgradeBadge } from '../cards/UpgradeBadge';
 import {
@@ -168,6 +168,7 @@ interface CardChipProps {
 }
 
 function CardChip({ card, upgrades, collectionEntry, locked = false, selected = false, selectedIndex, deckActionDisabled = false, variant, onOpen, onDeckAction, deckAction }: CardChipProps) {
+  const isRobot = card.category === 'unit' || card.category === 'commander';
   const upgradeBadge = getRobotUpgradeBadgeInfo(upgrades);
   const copyRequirement = getCardCopyRequirement(collectionEntry.level);
   const masteryCopy = collectionEntry.level > 0 ? ` Permanent Mastery Mark ${collectionEntry.level}.` : '';
@@ -186,6 +187,7 @@ function CardChip({ card, upgrades, collectionEntry, locked = false, selected = 
     <div className={`lobby-card-shell lobby-card-shell-${variant}${onDeckAction ? ' has-deck-action' : ''} category-${card.category}`}>
       <button
         className={`lobby-card lobby-card-${variant} category-${card.category}${selected ? ' is-selected' : ''}${locked ? ' is-vault-locked' : ''}`}
+        data-preview={isRobot ? 'robot' : 'system'}
         type="button"
         onClick={(event) => onOpen(event.currentTarget)}
         aria-label={`${card.name}, ${CATEGORY_LABELS[card.category].toLowerCase()}, costs ${card.cost} charge.${masteryCopy}${upgradeCopy}${selectionCopy}${actionCopy}`}
@@ -202,6 +204,15 @@ function CardChip({ card, upgrades, collectionEntry, locked = false, selected = 
           style={getCardSpriteStyle(card.sheet, card.frame)}
           aria-hidden="true"
         />
+        {isRobot && (
+          <span
+            className="lobby-card-action-preview"
+            style={getCardActionPreviewStyle(card.id as RobotCardId)}
+            aria-hidden="true"
+            data-testid={`dashboard-card-action-preview-${card.id}`}
+          />
+        )}
+        <span className="lobby-card-action-flare" aria-hidden="true" />
         <span className="lobby-card-name">{card.shortName}</span>
         {locked && (
           <span className="lobby-card-lock" aria-hidden="true">

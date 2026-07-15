@@ -414,7 +414,9 @@ Add dedicated events or state-driven triggers for the following sounds:
 
 ## Integration checklist
 
-- [ ] Add an asset manifest mapping every logical cue to its recorded file variants.
+- [x] Add an asset manifest mapping every logical cue to its recorded file variants.
+  `recordedSoundDesign.ts` is the runtime source of truth, and `npm run check:audio`
+  rejects missing mappings or unreferenced shipped audio.
 - [ ] Preload or lazily decode the first-use SFX without blocking match launch.
 - [ ] Reuse the existing Web Audio context and bus structure.
 - [ ] Create a new `AudioBufferSourceNode` for every overlapping one-shot.
@@ -467,4 +469,3 @@ Add dedicated events or state-driven triggers for the following sounds:
 - `src/game/core/MatchEngine.ts` — gameplay event emission.
 - `src/app/App.tsx` — music phase transitions, mute, volume, and pause behavior.
 - `docs/AUDIO.md` — current audio architecture and licensing notes.
-

@@ -1,5 +1,8 @@
 import type { CSSProperties } from 'react';
-import { getCardSpriteStyle, TECH_CLASS_LABELS } from '../cards/cardPresentation';
+import {
+  getCardSpriteStyle,
+  TECH_CLASS_LABELS,
+} from '../cards/cardPresentation';
 import { getRobotUpgradeBadgeInfo, UpgradeBadge } from '../cards/UpgradeBadge';
 import { CARDS, MAX_CHARGE } from '../../game/core/content';
 import type {
@@ -97,7 +100,7 @@ export function CardHand({ snapshot, onSelect, onBeginDrag, onCancelDrag, onInsp
           return (
             <article
               key={`${cardId}-${index}`}
-              className={`command-card-slot ${cardClass(card)}${selected ? ' is-selected' : ''}`}
+              className={`command-card-slot ${cardClass(card)}${selected ? ' is-selected' : ''}${playable ? ' is-affordable' : ''}`}
               data-card={cardId}
               data-category={card.category}
               data-tech={card.techClass}
@@ -145,6 +148,7 @@ export function CardHand({ snapshot, onSelect, onBeginDrag, onCancelDrag, onInsp
       </div>
 
       <div
+        key={nextCard.id}
         className={`next-card ${cardClass(nextCard)}`}
         aria-label={`Next card: ${nextCard.name}, ${CATEGORY_LABELS[nextCard.category].toLowerCase()}, ${TECH_CLASS_LABELS[nextCard.techClass].toLowerCase()} tech.${nextMasteryCopy}${nextUpgradeCopy}`}
       >
@@ -190,7 +194,8 @@ export function CardHand({ snapshot, onSelect, onBeginDrag, onCancelDrag, onInsp
         <div className="charge-segments" aria-hidden="true">
           {Array.from({ length: MAX_CHARGE }, (_, index) => {
             const amount = Math.max(0, Math.min(1, charge - index));
-            return <i key={index} style={{ '--fill': amount } as CSSProperties} />;
+            const state = amount >= 0.999 ? 'is-full' : amount > 0 ? 'is-filling' : '';
+            return <i key={index} className={state} style={{ '--fill': amount } as CSSProperties} />;
           })}
         </div>
       </div>
